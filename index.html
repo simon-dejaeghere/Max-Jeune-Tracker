@@ -753,11 +753,15 @@
       if (feats.length) map.fitBounds(bounds, { padding: 60, maxZoom: 8 });
       items.sort((a, b) => b.ok - a.ok || a.name.localeCompare(b.name));
       const deps = l => l.length ? `${l.length} train(s) : ${l.map(t => t.dep).join(", ")}` : "complet";
-      $("list").innerHTML = items.map(i => `<li data-n="${i.name}"><b><span class="dot ${i.ok ? "ok" : ""}"></span>${i.name}</b>
+      /* Types de trains disponibles (ordre fixe), et pastille aux couleurs de chacun : une part par type */
+      const kindsOf = i => Object.keys(KIND).filter(k => [...i.free, ...(i.rfree || [])].some(t => t.kind === k));
+      const dotBg = ks => ks.length < 2 ? KIND[ks[0]]?.[1] || "var(--ko)"
+        : `conic-gradient(${ks.map((k, j) => `${KIND[k][1]} ${j * 360 / ks.length}deg ${(j + 1) * 360 / ks.length}deg`).join(", ")})`;
+      $("list").innerHTML = items.map(i => { const ks = kindsOf(i); return `<li data-n="${i.name}"><b><span class="dot" style="background:${i.ok ? dotBg(ks) : "var(--ko)"}"></span>${i.name}</b>
     ${!i.rfree ? `<span class="t">${i.ok ? deps(i.free) : "Complet"}</span>`
           : `<span class="t">Aller : ${deps(i.free)}</span><br><span class="t">Retour : ${deps(i.rfree)}</span><br>`}
-    ${[...new Set([...i.free, ...(i.rfree || [])].map(t => t.kind).filter(k => KIND[k]))].map(k => `<span class="badge" style="background:${KIND[k][1]}">${KIND[k][0]}</span>`).join("")}</li>`).join("");
-      $("list").querySelectorAll("li").forEach(li => li.onclick = () => { show(li.dataset.n); focusRoute(li.dataset.n); });
+    ${ks.map(k => `<span class="badge" style="background:${KIND[k][1]}">${KIND[k][0]}</span>`).join("")}</li>`; }).join("");
+      $("list").querySelectorAll("li").forEach(li => li.onclick = () => { show(li.dataset.n); focusRoute(li.dataset.n); toMap(); });
       applyHighlight();
       const nOk = items.filter(i => i.ok).length;
       $("status").textContent = (rev ? `${nOk} gare(s) de départ avec des places MAX JEUNE vers ${clean(dest0)}` : `${nOk} destination(s) avec des places MAX JEUNE`)
@@ -837,7 +841,10 @@
       $("status").textContent = `Recherche copiée : « ${q} ». Collez-la dans la recherche de Trainline.`;
     });
 
-    $("go").onclick = async () => {
+    /* Téléphone : la carte est sous le formulaire, on la fait venir à l'écran après une action de l'utilisateur */
+    const MOBILE = matchMedia("(max-width: 760px)");
+    const toMap = () => MOBILE.matches && $("wrap").scrollIntoView({ behavior: REDUCE ? "auto" : "smooth", block: "start" });
+    $("go").onclick = async e => {
       const oIata = $("origin").value, allO = oIata === ALL_O, d0 = $("dest").value, date = $("date").value, ret = $("ret").value;
       /* Toutes les gares de départ : une destination précise est obligatoire */
       if (allO && !d0) {
@@ -845,6 +852,7 @@
         setTimeout(() => $("dest-btn").click());
         return;
       }
+      if (e?.isTrusted) toMap();
       $("go").disabled = true; $("status").textContent = "Recherche en cours…";
       try {
         const codes = allO ? "" : oIata.split(",").map(c => `"${esc(c)}"`).join(",");
