@@ -4,7 +4,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Trajets MAX JEUNE disponibles</title>
+  <title>Max Jeune Tracker — trajets MAX JEUNE disponibles</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='11' fill='%231f4e8c'/%3E%3Crect x='11.5' y='8' width='17' height='19' rx='5' fill='%23fff'/%3E%3Crect x='14' y='11' width='12' height='6.5' rx='1.8' fill='%231f4e8c'/%3E%3Ccircle cx='15.5' cy='22.5' r='1.6' fill='%231f4e8c'/%3E%3Ccircle cx='24.5' cy='22.5' r='1.6' fill='%231f4e8c'/%3E%3Cpath d='M14.5 27l-2.5 4M25.5 27l2.5 4' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='31' cy='9' r='6.2' fill='%23ffd23f' stroke='%231f4e8c' stroke-width='1.6'/%3E%3Cpath d='M31.8 5.6 28.9 9.6h2.6l-.7 3 2.9-4h-2.6z' fill='%231b2a3a'/%3E%3C/svg%3E">
   <!-- Cartographie : MapLibre GL 6 + Carte facile (fonds de carte IGN et sélecteur de cartes) -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-gl.css">
   <link rel="stylesheet" href="https://unpkg.com/carte-facile@0.10.2/dist/carte-facile.css">
@@ -24,7 +25,21 @@
 <body>
   <aside>
     <header>
-      <h1>Trajets MAX JEUNE</h1>
+      <h1 class="brand">
+        <!-- Logo : avant de train sur une pastille bleue, avec un éclair jaune (le « tracker ») -->
+        <svg class="brand-logo" width="38" height="38" viewBox="0 0 40 40" aria-hidden="true">
+          <defs><linearGradient id="lg-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1f4e8c"/><stop offset="1" stop-color="#2d6cb5"/></linearGradient></defs>
+          <rect width="40" height="40" rx="11" fill="url(#lg-bg)"/>
+          <path d="M8 31h24" stroke="#fff" stroke-opacity=".35" stroke-width="1.6" stroke-linecap="round"/>
+          <rect x="11.5" y="8" width="17" height="19" rx="5" fill="#fff"/>
+          <rect x="14" y="11" width="12" height="6.5" rx="1.8" fill="#1f4e8c"/>
+          <circle cx="15.5" cy="22.5" r="1.6" fill="#1f4e8c"/><circle cx="24.5" cy="22.5" r="1.6" fill="#1f4e8c"/>
+          <path d="M14.5 27l-2.5 4M25.5 27l2.5 4" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="31" cy="9" r="6.2" fill="#ffd23f" stroke="#1f4e8c" stroke-width="1.6"/>
+          <path d="M31.8 5.6 28.9 9.6h2.6l-.7 3 2.9-4h-2.6z" fill="#1b2a3a"/>
+        </svg>
+        <span class="brand-txt">Max Jeune <b>Tracker</b><small>Places MAX JEUNE disponibles, sur la carte</small></span>
+      </h1>
       <label for="date-btn">Date du voyage</label>
       <!-- Calendrier maison (même style que les infobulles) ; la valeur AAAA-MM-JJ reste dans #date -->
       <input type="hidden" id="date">
@@ -175,26 +190,71 @@
     const sncfLink = (oi, di, date, time) => `https://www.sncf-connect.com/fr-fr/redirect?${new URLSearchParams({
       nb_pax: 1, outward_date: `${date}-${time.replace(":", "-")}`, origin_transporter_code: oi, destination_transporter_code: di, redirection_type: "SEARCH"
     })}`;
-    /* Trainline : la page de résultats demande des identifiants Trainline (urn:trainline:generic:loc:ID). Ils sont obtenus par nom de gare
-       via l'API publique de Trainline (mis en cache dans le navigateur). Si l'API est inaccessible depuis le navigateur (CORS), on retombe
-       sur la table manuelle ci-dessous (clé = nom normalisé de la ville → ID, visible dans l'URL d'une recherche sur thetrainline.com/fr),
-       puis sur la page d'accueil avec une phrase de recherche copiée. */
+    /* Trainline : la page de résultats demande des identifiants Trainline (urn:trainline:generic:loc:ID). L'API de recherche de Trainline
+       refuse les appels venant d'un autre site (CORS) : les identifiants sont donc rangés dans la table ci-dessous (clé = nom de gare
+       normalisé par norm(), comme dans le jeu de données tgvmax). Gare absente : page d'accueil de Trainline avec la recherche copiée.
+       Pour ajouter une gare : l'ID figure dans l'URL d'une recherche sur thetrainline.com/fr. */
     const TRAINLINE_BASE = "https://www.thetrainline.com";
-    const TL_MANUAL = { PARIS: "4916" };
-    let TL = {}; try { TL = JSON.parse(localStorage.getItem("tlIds") || "{}"); } catch { }
-    async function tlId(name) {
-      const n = norm(name);
-      if (TL_MANUAL[n]) return TL_MANUAL[n];
-      if (n in TL) return TL[n];
-      try {
-        const r = await fetch(`${TRAINLINE_BASE}/api/locations-search/v2/search?searchTerm=${encodeURIComponent(clean(name))}&locale=en-US`);
-        const list = (await r.json()).searchLocations || [];
-        const hit = list.find(l => l.countryCode === "FR") || list[0];
-        TL[n] = hit?.code?.replace("urn:trainline:generic:loc:", "") || null;
-      } catch { return null; }
-      try { localStorage.setItem("tlIds", JSON.stringify(TL)); } catch { }
-      return TL[n];
-    }
+    const TL_IDS = {
+      "AEROPORT ROISSY CDG 2 TGV": "1144", "AGDE": "5744", "AGEN": "207", "AIME LA PLAGNE": "5021", "AIX EN PROVENCE TGV": "233",
+      "AIX LES BAINS LE REVARD": "5745", "ALBERTVILLE": "5750", "ALBI MADELEINE": "316", "ALBI VILLE": "191", "AMIENS": "5022", "ANCENIS": "2186",
+      "ANGERS SAINT LAUD": "84", "ANGOULEME": "347", "ANNECY": "4843", "ANNEMASSE": "5039", "ANTIBES": "5749", "ARCACHON": "5743", "ARGELES SUR MER": "416",
+      "ARGENTON SUR CREUSE": "215", "ARLES": "4143", "ARRAS": "5042", "ARVANT": "425", "ASSIER": "2716", "AUBIN": "2937", "AUGSBURG HBF": "6850",
+      "AUMONT AUBRAC": "4444", "AURAY": "5845", "AURILLAC": "481", "AUTERIVE": "2873", "AVIGNON CENTRE": "171", "AVIGNON TGV": "485",
+      "AX LES THERMES": "5796", "BADEN BADEN": "7726", "BANASSAC LA CANOURGUE": "4447", "BANYULS SUR MER": "5759", "BAR LE DUC": "5753",
+      "BARCELONA SANTS": "6625", "BASEL SBB": "5878", "BAYONNE": "5762", "BEAUNE": "5760", "BEDARIEUX": "4429", "BELFORT MONTBELIARD TGV": "10496",
+      "BELLEGARDE SUR VALSERINE GARE": "140", "BERLIN GESUNDBRUNNEN": "14564", "BERLIN HBF": "7630", "BERLIN SUDKREUZ": "7528",
+      "BESANCON FRANCHE COMTE TGV": "10498", "BESANCON VIOTTE": "45", "BETHUNE": "5754", "BEZIERS": "1066", "BIARRITZ": "713", "BIGANOS FACTURE": "2553",
+      "BORDEAUX ST JEAN": "828", "BOULOGNE VILLE": "149", "BOURG EN BRESSE": "5755", "BOURG SAINT MAURICE": "5028", "BOURGES": "843",
+      "BRASSAC LES MINES STE FLORINE": "3839", "BREST": "659", "BRETENOUX BIARS": "1000", "BRIANCON": "5752", "BRIVE LA GAILLARDE": "957",
+      "BRUXELLES MIDI": "5893", "CAHORS": "5870", "CALAIS FRETHUN": "1419", "CAMPAGNAC ST GENIEZ": "4448", "CANNES": "1180", "CAPDENAC": "1139",
+      "CARCASSONNE": "1119", "CARMAUX": "3008", "CAUSSADE": "2944", "CEILHES ROQUEREDONDE": "4424", "CERBERE": "5766", "CHALON SUR SAONE": "5765",
+      "CHALONS EN CHAMPAGNE": "1125", "CHAMBERY CHALLES LES EAUX": "1339", "CHAMPAGNE ARDENNE TGV": "91", "CHARLEVILLE MEZIERES": "5775",
+      "CHATEAUROUX": "1257", "CHATELLERAULT": "5773", "CHORGES": "4318", "CLERMONT FERRAND": "1193", "CLUSES": "4035", "COLLIOURE": "5771", "COLMAR": "157",
+      "COMMERCY": "692", "COMMERCY ZONE DU SEUGNON": "692", "CRANSAC": "2938", "CREST": "1440", "CROIX WASQUEHAL": "130", "CULMONT CHALINDREY": "1137",
+      "DAX": "77", "DIE": "1778", "DIJON VILLE": "38", "DOL DE BRETAGNE": "1916", "DOLE VILLE": "76", "DOUAI": "5777", "DUNKERQUE": "122", "ELNE": "4471",
+      "EMBRUN": "4321", "EPINAL": "2343", "ERFURT HBF": "7588", "ETAPLES LE TOUQUET": "2416", "EVIAN LES BAINS": "5778", "FIGEAC": "2719",
+      "FIGUERES VILAFANT": "10481", "FOIX": "5780", "FORBACH": "117", "FRANKFURT AM MAIN HBF": "7604", "FRASNE": "2902", "FREIBURG HBF": "7597",
+      "FUTUROSCOPE": "5002", "GAP": "9299", "GENEVE CORNAVIN": "5335", "GIRONA": "6655", "GOURDON": "2930", "GRAMAT": "2925", "GRENOBLE": "3358",
+      "GUINGAMP": "3232", "HALLE HBF": "7736", "HAZEBROUCK": "4151", "HENDAYE": "152", "HYERES": "5784", "ISSOIRE": "3836", "ISSOUDUN": "2810",
+      "JONZAC": "2301", "KAISERSLAUTERN HBF": "7667", "KARLSRUHE HBF": "7666", "L ARGENTIERE LES ECRINS": "4328", "L HOSPITALET PRES L AND.": "2882",
+      "LA BAULE ESCOUBLAC": "4564", "LA ROCHE SUR YON": "5815", "LA ROCHELLE VILLE": "4687", "LA SOUTERRAINE": "4701", "LA TESTE": "2607",
+      "LAHR SCHWARZW": "7042", "LAMBALLE": "4598", "LANDERNEAU": "5790", "LANDRY": "3931", "LANNEMEZAN": "4670", "LANNION": "4596",
+      "LAROQUEBROU BATIMENT VOYAGEURS": "3115", "LATOUR DE CAROL ENVEITG": "5279", "LAUSANNE": "6247", "LAVAL": "93", "LE BOUSQUET D ORB": "4428",
+      "LE CREUSOT MONTCEAU MONTCHANIN": "4729", "LE CROISIC": "2207", "LE HAVRE": "178", "LE MANS": "172", "LE MONASTIER": "4664", "LE POULIGUEN": "2205",
+      "LENS": "5791", "LEROUVILLE CENTRE": "9490", "LES ARCS DRAGUIGNAN": "5816", "LES AUBRAIS ORLEANS": "4594", "LES CABANNES": "2886",
+      "LES SABLES D OLONNE": "4698", "LIBOURNE": "5795", "LILLE": "4652", "LIMOGES BENEDICTINS": "211", "LORIENT": "4690", "LORRAINE TGV": "2094",
+      "LOURDES": "4626", "LUC EN DIOIS": "4292", "LUCON": "4618", "LUNEVILLE": "4666", "LUXEMBOURG": "8604", "LUZENAC GARANOU": "2884", "LYON": "4718",
+      "LYON ST EXUPERY TGV.": "4558", "MACON LOCHE TGV": "4756", "MACON VILLE": "3751", "MAGALAS": "4430", "MANNHEIM HBF": "7479", "MANTES LA JOLIE": "4804",
+      "MARMANDE": "5802", "MARNE LA VALLEE CHESSY": "4757", "MARSEILLE BLANCARDE": "4723", "MARSEILLE ST CHARLES": "4791", "MARVEJOLS": "4445",
+      "MASSIAC BLESLE": "3880", "MASSY PALAISEAU": "2002", "MASSY TGV": "1818", "MERENS LES VALS": "2883", "METZ VILLE": "114", "MEUSE TGV": "2091",
+      "MILANO PORTA GARIBALDI": "8492", "MILLAU": "4719", "MIRAMAS": "4722", "MODANE": "212", "MONTAUBAN VILLE BOURBON": "5804", "MONTBARD": "3527",
+      "MONTDAUPHIN GUILLESTRE": "4325", "MONTELIMAR GARE SNCF": "4807", "MONTPELLIER SAINT ROCH": "4786", "MONTPELLIER SUD DE FRANCE": "33317",
+      "MONTREJEAU GOURDAN POLIGNAN": "4805", "MORLAIX": "4822", "MOUCHARD": "4728", "MOULINS SUR ALLIER": "5803", "MOUTIERS SALINS BRIDES LES BAINS": "5038",
+      "MULHOUSE VILLE": "158", "MUNCHEN HBF": "7480", "NANCY": "2312", "NANTES": "4866", "NARBONNE": "5806", "NAUCELLE": "3013", "NEUFCHATEAU": "4842",
+      "NEUSSARGUES": "4848", "NEVERS": "4858", "NICE VILLE": "4839", "NIMES CENTRE": "2825", "NIMES PONT DU GARD": "38108", "NIORT": "4853",
+      "NURIEUX GARE": "3960", "OFFENBURG": "7746", "ORANGE": "5808", "ORTHEZ": "3202", "PAMIERS": "4980", "PARIS": "4916",
+      "PARIS GARE DE LYON": "4924", "PARIS MONTPARNASSE": "4920", "PARIS NORD": "4922", "PARIS EST": "4919", "PARIS AUSTERLITZ": "4921", "PARIS BERCY": "4917",
+      "LYON PART DIEU": "4676", "LYON PERRACHE": "4677", "LILLE EUROPE": "4653", "LILLE FLANDRES": "123", "PARIS MONTPARNASSE VAUGIRARD":"4920", "PAU": "151", "PERPIGNAN": "4955", "PLOUARET TREGOR": "4975", "POITIERS": "4964", "PORNICHET": "2204",
+      "PORT VENDRES VILLE": "5812", "PORTE PUYMORENS": "2881", "QUIMPER": "5432", "QUIMPERLE": "2138", "RANG DU FLIERS VERTON BERCK": "1539",
+      "REDON": "5814", "REIMS": "89", "REMIREMONT": "5098", "RENNES": "5097", "RETHEL": "640", "RINGSHEIM EUROPA PARK": "13237", "RIOM CHATEL GUYON": "5084",
+      "ROANNE": "5096", "ROCAMADOUR PADIRAC": "2924", "ROCHEFORT": "5060", "RODEZ": "5069", "ROSPORDEN": "5107", "ROUBAIX": "132",
+      "ROUEN RIVE DROITE": "5601", "SAARBRUECKEN/SARREBRUCK": "7708", "SABLE SUR SARTHE": "5126", "SAINT AVRE LA CHAMBRE": "3910",
+      "SAINT CHELY D APCHER": "4443", "SAINT ETIENNE CHATEAUCREUX": "2122", "SAINT GEORGES DE LUZENCON": "4451", "SAINT GERMAIN DES FOSSES": "5181",
+      "SAINT QUENTIN": "5823", "SAINT ROME DE CERNON": "4452", "SAINTES": "5830", "SALLANCHES COMBLOUX MEGEVE": "5826", "SARREBOURG": "5142", "SAUMUR": "85",
+      "SAVERDUN": "2871", "SAVERNE": "5216", "SEDAN": "5166", "SELESTAT": "5828", "SETE": "5834", "SEVERAC LE CHATEAU": "5254", "SOUILLAC": "5225",
+      "ST BRIEUC": "5144", "ST CHRISTOPHE": "2940", "ST DENIS PRES MARTEL": "5162", "ST DIE": "5838", "ST FLOUR CHAUDES AIGUES": "4438",
+      "ST GAUDENS": "2861", "ST GERVAIS LES BAINS LE FAYET": "5781", "ST JEAN DE LUZ CIBOURE": "5788", "ST JEAN DE MAURIENNE ARVAN": "3934",
+      "ST MAIXENT": "2243", "ST MALO": "5818", "ST MICHEL VALLOIRE": "5852", "ST NAZAIRE": "5219", "ST PIERRE DES CORPS": "5821",
+      "ST RAPHAEL VALESCURE": "5824", "ST VINCENT DE TYROSSE": "3242", "STRASBOURG": "153", "STUTTGART HBF": "7710", "SURGERES": "2234",
+      "TARASCON SUR ARIEGE": "2888", "TARBES": "5836", "TGV HAUTE PICARDIE": "5298", "THIONVILLE": "5839", "THONON LES BAINS": "5843",
+      "TORINO PORTA SUSA": "8568", "TOUL": "5322", "TOULON": "5304", "TOULOUSE MATABIAU": "5311", "TOURCOING": "125", "TOURNEMIRE ROQUEFORT": "4453",
+      "TOURS": "203", "ULM HBF": "7700", "UZERCHE": "36", "VALENCE TGV AUVERGNE RHONE ALPES": "5614", "VALENCE VILLE": "5610", "VALENCIENNES": "5853",
+      "VALLORBE": "6176", "VANNES": "5663", "VENDOME VILLIERS SUR LOIR": "2406", "VERDUN": "5850", "VERSAILLES CHANTIERS": "223", "VEYNES DEVOLUY": "5626",
+      "VICHY": "5638", "VIERZON": "5674", "VITRE": "5854", "VITRY LE FRANCOIS": "667", "VIVIEZ DECAZEVILLE": "25", "ZURICH HB": "6245"
+    };
+    try { localStorage.removeItem("tlIds"); } catch { }   // ancien cache de l'API Trainline, parfois erroné
+    const tlId = name => TL_IDS[norm(name)] || null;
     const trainlineLink = (o, d, date, time) => !(o && d) ? `${TRAINLINE_BASE}/fr` :
       `${TRAINLINE_BASE}/book/results?${new URLSearchParams([["journeySearchType", "single"], ["origin", `urn:trainline:generic:loc:${o}`], ["destination", `urn:trainline:generic:loc:${d}`], ["outwardDate", `${date}T${time}:00`], ["outwardDateType", "departAfter"], ["selectedTab", "train"], ["splitSave", "true"], ["lang", "fr"], ["transportModes[]", "mixed"]])}`;
 
@@ -371,8 +431,24 @@
     async function fetchAll(params) {
       const r = await fetch(`${EXPORT}?${new URLSearchParams({ ...params, limit: -1 })}`);
       if (!r.ok) throw new Error(`API SNCF : HTTP ${r.status}`);
-      return r.json();
+      return (await r.json()).map(realNames);
     }
+    /* Villes à plusieurs gares : le jeu de données les nomme toutes « PARIS (intramuros) », « LYON (intramuros) »…
+       Seul le code de la gare les distingue : on remplace le nom de ville par celui de la gare. */
+    const INTRAMUROS = {
+      FRPLY: "PARIS GARE DE LYON", FRPMO: "PARIS MONTPARNASSE", FRPNO: "PARIS NORD", FRPST: "PARIS EST", FRPAZ: "PARIS AUSTERLITZ", FRPBE: "PARIS BERCY",
+      FRLPD: "LYON PART DIEU", FRLPE: "LYON PERRACHE", FRLLE: "LILLE EUROPE", FRADJ: "LILLE FLANDRES"
+    };
+    function realNames(r) {
+      for (const [n, c] of [[F.origin, F.originIata], [F.dest, F.destIata]])
+        if (/intramuros/i.test(r[n] || "") && INTRAMUROS[r[c]]) r[n] = INTRAMUROS[r[c]];
+      return r;
+    }
+    /* Filtre de l'API sur une gare, ou sur toutes les gares d'une ville (noms séparés par « | »).
+       Une gare « intramuros » renommée est cherchée par son code, le jeu de données ne connaissant que le nom de la ville. */
+    const CODE_OF = Object.fromEntries(Object.entries(INTRAMUROS).map(([c, n]) => [n, c]));
+    const whereStation = (nameField, iataField, v) =>
+      `(${v.split("|").map(n => CODE_OF[n] ? `${iataField}="${CODE_OF[n]}"` : `${nameField}="${esc(n)}"`).join(" OR ")})`;
     const esc = s => s.replace(/"/g, '\\"');
 
     /* ---------- UI ---------- */
@@ -634,13 +710,13 @@
     /* Le point et la pastille du nom ouvrent tous deux la fiche de la destination */
     const PTS = () => ["pts", "pts-label"].filter(l => map.getLayer(l));
     for (const l of ["pts", "pts-label"]) {
-      map.on("click", l, e => show(e.features[0].properties.name));
+      map.on("click", l, e => show(e.features[0].properties.name, true));
       map.on("mouseenter", l, () => map.getCanvas().style.cursor = "pointer");
       map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
     }
     map.on("click", e => {
       if (!map.getLayer("pts") || !map.queryRenderedFeatures(e.point, { layers: PTS() }).length) {
-        selected = null; popup?.remove(); applyHighlight();
+        closeDetail(); popup?.remove();
         /* Clic sur une gare de la liste (hors destinations) : petite fiche */
         const g = map.getLayer("gares") && map.queryRenderedFeatures(e.point, { layers: ["gares-tgv", "gares"].filter(l => map.getLayer(l)) })[0];
         if (g) popup = new maplibregl.Popup({ maxWidth: "240px", className: "gare-pop" }).setLngLat(g.geometry.coordinates)
@@ -656,11 +732,22 @@
        arrivées sont interdits), mais une invite non choisissable tant qu'aucune destination n'est sélectionnée. */
     const ALL_O = "*";
     let NAMES = [];
+    /* Villes à plusieurs gares : une entrée « Ville (toutes les gares) » regroupe leurs gares, qui restent aussi choisissables seules */
+    const MULTI = ["PARIS", "LYON", "LILLE", "MARSEILLE", "AVIGNON"];
+    const cityGroups = names => MULTI.map(city => {
+      const members = [...new Set(names.filter(n => { const k = norm(n); return k === city || k.startsWith(city + " "); }))];
+      return members.length > 1 ? { city, label: `${city[0]}${city.slice(1).toLowerCase()} (toutes les gares)`, members } : null;
+    }).filter(Boolean);
+    const attr = s => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+    /* Destination « toutes les gares » d'une ville : valeur = noms des gares séparés par « | » */
     function destOptions(names, keep) {
-      const sel = $("dest"), allO = $("origin").value === ALL_O;
+      const sel = $("dest"), allO = $("origin").value === ALL_O, groups = cityGroups(names);
       sel.innerHTML = (allO ? `<option value="" disabled>Choisissez une destination</option>` : `<option value="">Toutes les destinations</option>`)
+        + groups.map(g => `<option value="${attr(g.members.join("|"))}">${g.label}</option>`).join("")
         + names.map(n => `<option>${n}</option>`).join("");
-      const o = [...sel.options].find(o => o.value === (names.includes(keep) ? keep : ""));
+      /* Choix conservé : même gare, ou même ville (« toutes les gares », même si les gares desservies ont changé) */
+      const kg = keep?.includes("|") && cityGroups(keep.split("|"))[0]?.label;
+      const o = [...sel.options].find(o => !o.disabled && (o.value === keep || (kg && o.text === kg))) || [...sel.options].find(o => o.value === "");
       if (o) o.selected = true;
     }
     $("origin").addEventListener("change", () => destOptions(NAMES, $("dest").value));
@@ -668,12 +755,9 @@
     async function loadOrigins() {
       try {
         const rows = (await fetchAll({ select: `${F.originIata},${F.origin}`, group_by: `${F.originIata},${F.origin}`, order_by: F.origin })).filter(r => r[F.originIata]);
-        /* Villes à plusieurs gares : une entrée « toutes les gares » regroupe leurs codes IATA, les gares restent aussi choisissables seules. */
-        const MULTI = ["PARIS", "LYON", "LILLE", "MARSEILLE", "AVIGNON"];
-        const groups = MULTI.map(city => {
-          const codes = [...new Set(rows.filter(r => norm(r[F.origin]).startsWith(city)).map(r => r[F.originIata]))];
-          return codes.length > 1 ? [codes.join(","), `${city[0]}${city.slice(1).toLowerCase()} (toutes les gares)`] : null;
-        }).filter(Boolean);
+        /* Villes à plusieurs gares : l'entrée « toutes les gares » regroupe leurs codes */
+        const groups = cityGroups(rows.map(r => r[F.origin]))
+          .map(g => [[...new Set(rows.filter(r => g.members.includes(r[F.origin])).map(r => r[F.originIata]))].join(","), g.label]);
         /* « * » = toutes les gares de départ (une seule destination est alors exigée) */
         $("origin").innerHTML = [[ALL_O, "Toutes les gares de départ"], ...groups, ...rows.map(r => [r[F.originIata], r[F.origin]])].map(([v, t]) => `<option value="${v}">${t}</option>`).join("");
         const p = [...$("origin").options].find(o => norm(o.text).startsWith("PARIS")); if (p) p.selected = true;
@@ -725,7 +809,7 @@
       const feats = [], items = [], lost = [], bounds = new maplibregl.LngLatBounds();
       const o = locate(hub());   // gare fixe : départ (mode normal) ou destination (toutes les gares de départ)
       for (const [name, all0] of g) {
-        if (!rev && wanted && name !== wanted) continue;
+        if (!rev && wanted && !wanted.split("|").includes(name)) continue;
         const trains = ks ? all0.filter(t => t.kind === ks) : all0;
         if (!trains.length) continue;
         trains.sort((a, b) => a.dep.localeCompare(b.dep));
@@ -761,7 +845,10 @@
     ${!i.rfree ? `<span class="t">${i.ok ? deps(i.free) : "Complet"}</span>`
           : `<span class="t">Aller : ${deps(i.free)}</span><br><span class="t">Retour : ${deps(i.rfree)}</span><br>`}
     ${ks.map(k => `<span class="badge" style="background:${KIND[k][1]}">${KIND[k][0]}</span>`).join("")}</li>`; }).join("");
-      $("list").querySelectorAll("li").forEach(li => li.onclick = () => { show(li.dataset.n); focusRoute(li.dataset.n); toMap(); });
+      $("list").querySelectorAll("li").forEach(li => li.onclick = () => {
+        if (selected === li.dataset.n && $("list").querySelector(".detail")) { closeDetail(); return; }
+        show(li.dataset.n); focusRoute(li.dataset.n);
+      });
       applyHighlight();
       const nOk = items.filter(i => i.ok).length;
       $("status").textContent = (rev ? `${nOk} gare(s) de départ avec des places MAX JEUNE vers ${clean(dest0)}` : `${nOk} destination(s) avec des places MAX JEUNE`)
@@ -777,17 +864,15 @@
       }
       map.getSource("path")?.setData(pathData);
     }
-    async function show(name) {
+    function show(name, fromMap = false) {
       const t0 = group().get(name); if (!t0) return;
       /* Uniquement les trains avec des places MAX JEUNE, classés par heure de départ */
       const freeSorted = l => l.filter(x => x.ok).sort((a, b) => a.dep.localeCompare(b.dep) || a.arr.localeCompare(b.arr));
       const [t, tb] = sameDay(freeSorted(t0), rDate ? freeSorted(group(back, true).get(name) || []) : null);
-      const c = locate(name), [A, B] = ends(name);
-      if (popup) popup.remove();
+      const [A, B] = ends(name);
+      popup?.remove(); $("list").querySelector(".detail")?.remove();
       selected = name; setPath(name); applyHighlight(); launch(name);
-      const ids = new Map();
-      await Promise.all([...new Set([...t, ...(tb || [])].flatMap(x => [x.from, x.to]))].map(async n => ids.set(n, await tlId(n))));
-      if (selected !== name) return;
+      const ids = new Map([...t, ...(tb || [])].flatMap(x => [x.from, x.to]).map(n => [n, tlId(n)]));
       const dur = x => { const m = h => { const [a, b] = h.split(":"); return +a * 60 + +b; }; let d = m(x.arr) - m(x.dep); if (d < 0) d += 1440; return `${Math.floor(d / 60)}h${String(d % 60).padStart(2, "0")}`; };
       /* Départ « ville (toutes les gares) » : on précise la gare de la ville concernée (départ à l'aller, arrivée au retour) */
       const multi = originIata.includes(",");
@@ -802,37 +887,23 @@
       const rows = !tb ? rowsOf(t, qDate, false)
         : `<div class="psec">Aller · ${frDate(qDate)} · ${t.length} train${t.length > 1 ? "s" : ""}</div>${rowsOf(t, qDate, false)}
     <div class="psec">Retour · ${clean(B)} → ${clean(A)} · ${frDate(rDate)} · ${tb.length} train${tb.length > 1 ? "s" : ""}</div>${rDate === qDate ? `<div class="hint psame">Aller-retour dans la journée : seuls les trains compatibles sont affichés (retour après l'arrivée du premier aller).</div>` : ""}${rowsOf(tb, rDate, true)}`;
-      const html = `<div class="pop-head" title="Glisser pour déplacer"><span class="grip" aria-hidden="true"></span>
-    <div class="ptitle">${clean(A)} <span class="arrow">${tb ? "⇄" : "→"}</span> ${clean(B)}</div>
-    <div class="psub">${tb ? `Aller ${frDate(qDate)} · ${nTr(t.length)} — Retour ${frDate(rDate)} · ${nTr(tb.length)}` : `${frDate(qDate)} · ${nTr(t.length)} MAX JEUNE`}</div></div>
-    <button class="pop-x" type="button" title="Fermer" aria-label="Fermer"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button>
-    <div class="pop-body">${rows}
-    ${pathOf === name ? `<div class="pfoot">Tracé réel : ${pathData.features.length} tronçon(s), jusqu'à ${Math.max(...pathData.features.map(f => f.properties.v))} km/h</div>` : ""}<div class="hint">Les boutons ouvrent la recherche de ce train (choisissez ensuite le tarif MAX JEUNE sur SNCF Connect).</div></div>`;
-      if (c) {
-        popup = new maplibregl.Popup({ maxWidth: "320px", closeButton: false, closeOnClick: false, className: "trip-pop" }).setLngLat(c).setHTML(html).addTo(map);
-        popup.on("close", () => { if (selected === name) { selected = null; applyHighlight(); } });
-        makeDraggable(popup);
-      }
+      /* Détail affiché dans la liste, juste sous le trajet choisi */
+      const li = [...$("list").children].find(l => l.dataset.n === name); if (!li) return;
+      const det = document.createElement("li");
+      det.className = "detail";
+      det.innerHTML = `<div class="det-head"><span>${tb ? `Aller ${frDate(qDate)} · ${nTr(t.length)} — Retour ${frDate(rDate)} · ${nTr(tb.length)}` : `${frDate(qDate)} · ${nTr(t.length)} MAX JEUNE`}</span>
+    <button class="det-x" type="button" title="Fermer" aria-label="Fermer le détail"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button></div>
+    ${rows}
+    ${pathOf === name ? `<div class="pfoot">Tracé réel : ${pathData.features.length} tronçon(s), jusqu'à ${Math.max(...pathData.features.map(f => f.properties.v))} km/h</div>` : ""}<div class="hint">Les boutons ouvrent la recherche de ce train (choisissez ensuite le tarif MAX JEUNE sur SNCF Connect).</div>`;
+      det.querySelector(".det-x").onclick = () => { closeDetail(); li.focus?.(); };
+      li.after(det);
+      /* La liste défile pour montrer le trajet en haut, avec son détail dessous.
+         Sur téléphone, un clic dans la liste ne fait pas bouger la page ; un clic sur la carte descend jusqu'au trajet. */
+      if (fromMap || !MOBILE.matches) li.scrollIntoView({ behavior: REDUCE ? "auto" : "smooth", block: "start" });
     }
-    /* Infobulle déplaçable par son en-tête, fermée par la croix */
-    function makeDraggable(p) {
-      const el = p.getElement(), head = el.querySelector(".pop-head");
-      el.querySelector(".pop-x").onclick = () => p.remove();
-      head.addEventListener("pointerdown", e => {
-        if (e.target.closest(".pop-x") || e.button !== 0) return;
-        e.preventDefault(); head.setPointerCapture(e.pointerId);
-        /* Fige l'ancrage courant pour éviter que l'infobulle ne « saute » de côté pendant le déplacement */
-        const anc = [...el.classList].find(k => k.startsWith("maplibregl-popup-anchor-"));
-        if (anc) p.options.anchor = anc.replace("maplibregl-popup-anchor-", "");
-        let last = [e.clientX, e.clientY];
-        const move = ev => {
-          const pt = map.project(p.getLngLat());
-          p.setLngLat(map.unproject([pt.x + ev.clientX - last[0], pt.y + ev.clientY - last[1]]));
-          last = [ev.clientX, ev.clientY]; el.classList.add("moved");
-        };
-        const up = () => { head.removeEventListener("pointermove", move); head.removeEventListener("pointerup", up); head.removeEventListener("pointercancel", up); };
-        head.addEventListener("pointermove", move); head.addEventListener("pointerup", up); head.addEventListener("pointercancel", up);
-      });
+    function closeDetail() {
+      $("list").querySelector(".detail")?.remove();
+      if (selected) { selected = null; applyHighlight(); }
     }
     document.addEventListener("click", e => {
       const a = e.target.closest(".book"); if (!a) return;
@@ -856,12 +927,16 @@
       $("go").disabled = true; $("status").textContent = "Recherche en cours…";
       try {
         const codes = allO ? "" : oIata.split(",").map(c => `"${esc(c)}"`).join(",");
-        const where = allO ? `${F.date}=date'${date}' AND ${F.dest}="${esc(d0)}"` : `${F.date}=date'${date}' AND ${F.originIata} IN (${codes})`;
+        const where = allO ? `${F.date}=date'${date}' AND ${whereStation(F.dest, F.destIata, d0)}` : `${F.date}=date'${date}' AND ${F.originIata} IN (${codes})`;
         /* Retour : trains qui reviennent vers la gare de départ (ou qui repartent de la destination fixe en mode « toutes les gares ») */
-        const whereBack = !ret ? null : allO ? `${F.date}=date'${ret}' AND ${F.origin}="${esc(d0)}"` : `${F.date}=date'${ret}' AND ${F.destIata} IN (${codes})`;
+        const whereBack = !ret ? null : allO ? `${F.date}=date'${ret}' AND ${whereStation(F.origin, F.originIata, d0)}` : `${F.date}=date'${ret}' AND ${F.destIata} IN (${codes})`;
+        /* Trains d'aujourd'hui déjà partis au lancement de la requête : on ne peut plus les prendre, on les retire */
+        const now = new Date(), day = iso(now), hhmm = now.toTimeString().slice(0, 5);
+        const notGone = d => r => d !== day || String(r[F.dep] || "").padStart(5, "0") > hhmm;
         const [out, bk] = await Promise.all([fetchAll({ where }), whereBack ? fetchAll({ where: whereBack }) : []]);
-        all = out; back = bk; rDate = ret || null;
-        rev = allO; dest0 = allO ? d0 : null; originIata = oIata; qDate = date;
+        all = out.filter(notGone(date)); back = bk.filter(notGone(ret)); rDate = ret || null;
+        rev = allO; originIata = oIata; qDate = date;
+        dest0 = allO ? $("dest").selectedOptions[0].text : null;   // gare, ou « Ville (toutes les gares) »
         origin = allO ? null : $("origin").selectedOptions[0].text;
         /* Mode normal : destinations desservies ; la destination déjà choisie est conservée */
         if (!allO) {
@@ -882,18 +957,20 @@
       else if (all.length && !rev) render();
     };
     /* Inverser départ et destination. « Toutes les gares de départ » ↔ « Toutes les destinations » ;
-       une ville à plusieurs gares (départ) devient sa première gare présente dans la liste des destinations. */
+       « Ville (toutes les gares) » ↔ « Ville (toutes les gares) » ; une gare ↔ la même gare. */
     $("swap").onclick = () => {
       const oSel = $("origin"), oVal = oSel.value, dVal = $("dest").value, oOpts = [...oSel.options];
+      const oText = oSel.selectedOptions[0]?.text, dText = $("dest").selectedOptions[0]?.text;
       if (!NAMES.length || (oVal === ALL_O && !dVal)) return;   // rien à inverser (aucune destination choisie)
       let newDest = "";
       if (oVal !== ALL_O) {
-        const codes = oVal.split(",");
-        newDest = oOpts.filter(o => codes.includes(o.value) && !o.value.includes(",")).map(o => o.text).find(n => NAMES.includes(n)) || "";
+        newDest = oVal.includes(",") ? cityGroups(NAMES).find(g => g.label === oText)?.members.join("|") || ""
+          : NAMES.includes(oText) ? oText : "";
         if (!newDest) { $("status").textContent = "Cette gare de départ ne peut pas servir de destination."; return; }
       }
-      const newOrigin = dVal ? oOpts.find(o => o.value !== ALL_O && !o.value.includes(",") && o.text === dVal) : oOpts.find(o => o.value === ALL_O);
-      if (!newOrigin) { $("status").textContent = `${clean(dVal)} n'est pas une gare de départ du jeu de données MAX JEUNE.`; return; }
+      const newOrigin = !dVal ? oOpts.find(o => o.value === ALL_O)
+        : oOpts.find(o => o.value !== ALL_O && o.value.includes(",") === dVal.includes("|") && o.text === dText);
+      if (!newOrigin) { $("status").textContent = `${clean(dText)} n'est pas une gare de départ du jeu de données MAX JEUNE.`; return; }
       oSel.value = newOrigin.value; oSel.dispatchEvent(new Event("change"));   // reconstruit la liste des destinations
       destOptions(NAMES, newDest);
       /* Des résultats étaient affichés : on relance la recherche dans l'autre sens */
@@ -901,7 +978,7 @@
     };
     /* Sélecteur de cartes Carte facile : fonds + surcouches. On y ajoute nos deux couches (tronçons, gares)
        sous forme de cartes identiques à celles des surcouches de Carte facile. */
-    const RAIL = { lgv: true, gares: true };
+    const RAIL = { lgv: false, gares: false };   // masquées par défaut ; activables dans le sélecteur de cartes
     const RAIL_LAYERS = { lgv: ["lgv", "lgv-casing"], gares: ["gares", "gares-tgv", "gares-label"] };
     const svgThumb = body => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#eef1f4"/>${body}</svg>`);
     const RAIL_CARDS = [
@@ -983,7 +1060,10 @@
           const free = rest.filter(o => !top.includes(o)), ks = [].concat(k);
           const o = k instanceof RegExp ? free.find(o => k.test(norm(o.text)))
             : ks.map(k => free.find(o => norm(o.text) === k)).find(Boolean) || free.find(o => norm(o.text).startsWith(ks[0]));
-          if (o) top.push(o);
+          if (!o) continue;
+          top.push(o);
+          /* « Ville · toutes les gares » : ses gares suivent juste en dessous */
+          if (ALL_STATIONS.test(o.text)) { const c = norm(o.text); top.push(...free.filter(s => s !== o && !ALL_STATIONS.test(s.text) && norm(s.text).startsWith(c + " ")).sort((a, b) => a.text.localeCompare(b.text))); }
         }
         const others = rest.filter(o => !top.includes(o)).sort((a, b) => disp(a.text).localeCompare(disp(b.text), "fr", { sensitivity: "base" }));
         return { head, top, others };
