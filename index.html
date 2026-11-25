@@ -1,0 +1,1051 @@
+<!doctype html>
+<html lang="fr">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trajets MAX JEUNE disponibles</title>
+  <!-- Cartographie : MapLibre GL 6 + Carte facile (fonds de carte IGN et sélecteur de cartes) -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="https://unpkg.com/carte-facile@0.10.2/dist/carte-facile.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "maplibre-gl": "https://unpkg.com/maplibre-gl@6.19.0/dist/maplibre-gl.mjs",
+        "carte-facile": "https://unpkg.com/carte-facile@0.10.2/dist/carte-facile.esm.js"
+      }
+    }
+  </script>
+  <style>
+    @import "style.css";
+  </style>
+</head>
+
+<body>
+  <aside>
+    <header>
+      <h1>Trajets MAX JEUNE</h1>
+      <label for="date-btn">Date du voyage</label>
+      <!-- Calendrier maison (même style que les infobulles) ; la valeur AAAA-MM-JJ reste dans #date -->
+      <input type="hidden" id="date">
+      <button type="button" id="date-btn" class="dp-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="dp">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+        <span id="date-txt"></span>
+        <svg class="dp-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <!-- Date du retour : facultative (vide = aller simple) ; même calendrier que l'aller -->
+      <label for="ret-btn">Date du retour <span class="opt">facultatif</span></label>
+      <input type="hidden" id="ret">
+      <button type="button" id="ret-btn" class="dp-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="dp">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+        <span id="ret-txt"></span>
+        <svg class="dp-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div id="dp" class="dp-pop" role="dialog" aria-labelledby="dp-sub" hidden>
+        <div class="pop-head dp-head">
+          <div class="dp-title"><div class="psub" id="dp-sub">Date du voyage</div><div class="ptitle" id="dp-month"></div></div>
+        </div>
+        <div class="pop-body dp-body">
+          <div class="dp-list" id="dp-list" role="listbox" aria-labelledby="dp-sub"></div>
+          <div class="dp-foot" id="dp-foot">Les 30 prochains jours</div>
+        </div>
+      </div>
+      <!-- Départ et destination : deux champs identiques. Chaque <select> reste caché et porte la valeur ;
+           la liste déroulante (recherche + gares) est construite par le script en bas de page. -->
+      <label for="origin-btn">Gare de départ</label>
+      <div class="field" id="f-origin">
+        <button type="button" class="pbtn" id="origin-btn" aria-haspopup="listbox" aria-expanded="false">
+          <span class="ptxt"></span><svg class="dp-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <select id="origin" hidden tabindex="-1">
+          <option>Chargement…</option>
+        </select>
+      </div>
+      <!-- Inverser départ et destination -->
+      <div class="swap-row">
+        <button type="button" id="swap" class="swap" title="Inverser départ et destination" aria-label="Inverser départ et destination">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v15M3.5 15.5 7 19l3.5-3.5M17 20V5M13.5 8.5 17 5l3.5 3.5"/></svg>
+        </button>
+      </div>
+      <label for="dest-btn">Destination</label>
+      <div class="field" id="f-dest">
+        <button type="button" class="pbtn" id="dest-btn" aria-haspopup="listbox" aria-expanded="false">
+          <span class="ptxt"></span><svg class="dp-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <select id="dest" hidden tabindex="-1">
+          <option value="">Toutes les destinations</option>
+        </select>
+      </div>
+      <!-- Liste déroulante des gares (partagée par départ et destination) : recherche à la loupe en haut, puis les gares -->
+      <div id="dd" class="dp-pop dd" role="dialog" aria-labelledby="dd-sub" hidden>
+        <div class="pop-head dp-head">
+          <div class="dp-title"><div class="psub" id="dd-sub">Gare de départ</div><div class="ptitle" id="dd-title"></div></div>
+        </div>
+        <div class="dd-search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5 21 21" /></svg>
+          <input id="dd-q" type="search" placeholder="Rechercher une gare…" autocomplete="off" aria-controls="dd-list">
+        </div>
+        <div class="pop-body dp-body dd-body">
+        <ul id="dd-list" class="dd-list" role="listbox" aria-labelledby="dd-sub"></ul>
+        <div class="dp-foot" id="dd-foot"></div>
+        </div>
+      </div>
+      <label for="kind">Type de train</label>
+      <select id="kind">
+        <option value="">Tous</option>
+        <option value="TGV">TGV INOUI</option>
+        <option value="OUIGO">OUIGO</option>
+        <option value="IC">Intercités (jour)</option>
+        <option value="ICN">Intercités de nuit</option>
+      </select>
+      <div class="chk"><input type="checkbox" id="full"><label for="full">Afficher aussi les trains
+          complets</label></div>
+      <button id="go">Afficher les trajets</button>
+    </header>
+    <div id="status">Choisissez une date et une gare de départ.</div>
+    <div id="legend"><span><i style="background:#12926b"></i>TGV INOUI</span><span><i style="background:#e5398a"></i>OUIGO</span><span><i
+          style="background:#d9822b"></i>Intercités</span><span><i style="background:#6c4ab6"></i>Intercités de
+        nuit</span><span><i style="background:#a9b4bf"></i>Complet</span></div>
+    <ul id="list"></ul>
+  </aside>
+  <div id="wrap">
+    <div id="map"></div>
+    <div id="search">
+      <button id="sbtn" title="Rechercher une gare" aria-label="Rechercher une gare"><svg width="18" height="18"
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+          <circle cx="10.5" cy="10.5" r="6.5" />
+          <path d="M15.5 15.5 21 21" />
+        </svg></button>
+      <input id="sq" type="search" placeholder="Rechercher une gare…" autocomplete="off">
+      <ul id="sres"></ul>
+    </div>
+    <div id="speed"><b>Vitesse max du tronçon</b>
+      <div class="bar"></div>
+      <div class="sc"><span>30</span><span>100</span><span>160</span><span>230</span><span>320 km/h</span></div>
+      <div class="cr">Tracés : Train Nomade, d'après © contributeurs OpenStreetMap et horaires SNCF Voyageurs (ODbL)
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as maplibregl from "maplibre-gl";
+    import { mapStyles, MapSelectorControl } from "carte-facile";
+    /* ---------- Configuration ---------- */
+    const EXPORT = "https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/tgvmax/exports/json";
+    // Noms de champs du jeu de données "tgvmax" : à ajuster si SNCF les modifie (voir la console de l'API).
+    const F = { date: "date", origin: "origine", originIata: "origine_iata", dest: "destination", destIata: "destination_iata", dep: "heure_depart", arr: "heure_arrivee", train: "train_no", ok: "od_happy_card", entity: "entity", axe: "axe" };
+    const isOk = v => v === true || String(v).toUpperCase() === "OUI";
+
+    const clean = n => n.replace(/\s*\(.*?\)/g, "").toLowerCase().replace(/(^|[\s-])\S/g, m => m.toUpperCase());
+    const frDate = d => new Date(d + "T12:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+    const phrase = (from, to, date, time) => `${clean(from)} ${clean(to)} le ${frDate(date)} à ${time.replace(":", "h")}`;
+    /* SNCF Connect : lien de redirection direct vers la recherche (codes = ceux du jeu de données, date AAAA-MM-JJ-HH-MM). */
+    const sncfLink = (oi, di, date, time) => `https://www.sncf-connect.com/fr-fr/redirect?${new URLSearchParams({
+      nb_pax: 1, outward_date: `${date}-${time.replace(":", "-")}`, origin_transporter_code: oi, destination_transporter_code: di, redirection_type: "SEARCH"
+    })}`;
+    /* Trainline : la page de résultats demande des identifiants Trainline (urn:trainline:generic:loc:ID). Ils sont obtenus par nom de gare
+       via l'API publique de Trainline (mis en cache dans le navigateur). Si l'API est inaccessible depuis le navigateur (CORS), on retombe
+       sur la table manuelle ci-dessous (clé = nom normalisé de la ville → ID, visible dans l'URL d'une recherche sur thetrainline.com/fr),
+       puis sur la page d'accueil avec une phrase de recherche copiée. */
+    const TRAINLINE_BASE = "https://www.thetrainline.com";
+    const TL_MANUAL = { PARIS: "4916" };
+    let TL = {}; try { TL = JSON.parse(localStorage.getItem("tlIds") || "{}"); } catch { }
+    async function tlId(name) {
+      const n = norm(name);
+      if (TL_MANUAL[n]) return TL_MANUAL[n];
+      if (n in TL) return TL[n];
+      try {
+        const r = await fetch(`${TRAINLINE_BASE}/api/locations-search/v2/search?searchTerm=${encodeURIComponent(clean(name))}&locale=en-US`);
+        const list = (await r.json()).searchLocations || [];
+        const hit = list.find(l => l.countryCode === "FR") || list[0];
+        TL[n] = hit?.code?.replace("urn:trainline:generic:loc:", "") || null;
+      } catch { return null; }
+      try { localStorage.setItem("tlIds", JSON.stringify(TL)); } catch { }
+      return TL[n];
+    }
+    const trainlineLink = (o, d, date, time) => !(o && d) ? `${TRAINLINE_BASE}/fr` :
+      `${TRAINLINE_BASE}/book/results?${new URLSearchParams([["journeySearchType", "single"], ["origin", `urn:trainline:generic:loc:${o}`], ["destination", `urn:trainline:generic:loc:${d}`], ["outwardDate", `${date}T${time}:00`], ["outwardDateType", "departAfter"], ["selectedTab", "train"], ["splitSave", "true"], ["lang", "fr"], ["transportModes[]", "mixed"]])}`;
+
+    /* Type de train : TGV INOUI / OUIGO / Intercités (jour) / Intercités de nuit, d'après les champs entity et axe du jeu de données.
+       Une liaison arrivant le lendemain après 4 h 30 ou plus de trajet est considérée comme « de nuit ». */
+    const KIND = { TGV: ["TGV INOUI", "#12926b"], OUIGO: ["OUIGO", "#e5398a"], IC: ["Intercités", "#d9822b"], ICN: ["Intercités de nuit", "#6c4ab6"] };
+    const KCOL = ["match", ["get", "kind"], "TGV", "#12926b", "OUIGO", "#e5398a", "IC", "#d9822b", "ICN", "#6c4ab6", "#a9b4bf"];
+    const overnight = x => { const m = h => { const [a, b] = h.split(":"); return +a * 60 + +b; }; const d = m(x.arr) - m(x.dep); return d < 0 && d + 1440 >= 270; };
+    /* Le jeu de données n'indique pas la marque : OUIGO est reconnu par son nom (entity/axe) ou ses numéros de train (76xx à 79xx). */
+    const isOuigo = (x, t) => /OUIGO/.test(t) || /^7[6-9]\d\d$/.test(String(x.no || "").trim());
+    const kindOf = x => {
+      const t = fold(`${x.entity || ""} ${x.axe || ""}`), night = overnight(x) || t.includes("NUIT");
+      if (/INTERCITES|\bIC\b/.test(t)) return night ? "ICN" : "IC";
+      if (isOuigo(x, t)) return "OUIGO";
+      if (/TGV|INOUI|EUROSTAR|LYRIA/.test(t)) return "TGV";
+      return night ? "ICN" : "TGV";   // par défaut : TGV INOUI
+    };
+    const bestKind = free => ["TGV", "OUIGO", "IC", "ICN"].find(k => free.some(t => t.kind === k)) || "TGV";
+    const norm = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\(.*?\)/g, "").replace(/[-']/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+    let GEO = {}; try { GEO = JSON.parse(localStorage.getItem("geoGares") || "{}"); } catch { }
+    /* Coordonnées de référence : liste des gares SNCF (GeoJSON), puis géocodage en cache. Le jeu de données tgvmax n'en contient pas. */
+    const tableLocate = name => stationLocate(name) || GEO[norm(name)] || null;
+    const locate = name => tableLocate(name) || graphLocate(name);
+    /* Gares absentes de la liste : géocodage via la Géoplateforme IGN, mis en cache dans le navigateur (positions approximatives). */
+    async function geocodeMissing(names) {
+      const todo = [...new Set(names.filter(n => !locate(n)).map(norm))].filter(n => !(n in GEO));
+      await Promise.all(todo.map(async n => {
+        try {
+          const r = await fetch(`https://data.geopf.fr/geocodage/search?q=${encodeURIComponent("gare " + n.toLowerCase())}&limit=1`);
+          const [x, y] = (await r.json()).features?.[0]?.geometry?.coordinates || [];
+          GEO[n] = (x > -6 && x < 10 && y > 41 && y < 52) ? [x, y] : false;
+        } catch { }
+      }));
+      try { localStorage.setItem("geoGares", JSON.stringify(GEO)); } catch { }
+    }
+
+    /* ---------- Tracés ferroviaires (Train Nomade) : graphe de tronçons entre gares ---------- */
+    const TRACES_URL = "trainnomade-traces-ferroviaires.geojson";   // à placer à côté de cette page
+    const EMPTY_FC = { type: "FeatureCollection", features: [] };
+    let tracesData = EMPTY_FC;   // couche « rails » : affichée directement depuis le GeoJSON
+    const G = { ready: false, feats: [], adj: new Map(), names: new Map(), nname: new Map(), coord: new Map(), cache: new Map() };
+    const nn = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/\(.*?\)/g, " ").replace(/\bSAINTE\b/g, "STE").replace(/\bSAINT\b/g, "ST").replace(/[^A-Z0-9]+/g, " ").trim();
+    function buildGraph(gj) {
+      G.feats = gj.features; G.adj.clear(); G.names.clear(); G.nname.clear(); G.coord.clear(); G.cache.clear();
+      gj.features.forEach((f, i) => {
+        const p = f.properties, c = f.geometry.coordinates, w = p.longueur_m / Math.max(p.vitesse_max_kmh, 30);   // temps ≈ longueur / vitesse max
+        for (const [k, name, xy] of [[p.code_uic_a, p.gare_a, c[0]], [p.code_uic_b, p.gare_b, c[c.length - 1]]]) {
+          if (!G.names.has(k)) { G.names.set(k, name); G.nname.set(k, nn(name)); G.coord.set(k, xy); G.adj.set(k, []); }
+        }
+        G.adj.get(p.code_uic_a).push({ to: p.code_uic_b, w, i }); G.adj.get(p.code_uic_b).push({ to: p.code_uic_a, w, i });
+      });
+      G.ready = true;
+      tracesData = gj; map.getSource("lgv")?.setData(gj);
+    }
+    /* Gares du graphe correspondant à un nom du jeu de données : nom exact, sinon toutes les gares de la ville, sinon la gare au nom le plus proche, sinon la plus proche (≤ 15 km) */
+    function gNodes(name) {
+      if (!G.ready) return [];
+      const n = nn(name); if (G.cache.has(n)) return G.cache.get(n);
+      const all = [...G.nname]; let r = all.filter(([, v]) => v === n);
+      if (!r.length) r = all.filter(([, v]) => v.startsWith(n + " "));
+      if (!r.length) { const m = all.filter(([, v]) => n.startsWith(v + " ")), L = Math.max(0, ...m.map(([, v]) => v.length)); r = m.filter(([, v]) => v.length === L); }
+      let out = r.map(([k]) => k);
+      if (!out.length) {
+        const c = tableLocate(name);
+        if (c) { let best = null, bd = .15; for (const [k, xy] of G.coord) { const d = Math.hypot((xy[0] - c[0]) * Math.cos(c[1] * Math.PI / 180), xy[1] - c[1]); if (d < bd) { bd = d; best = k; } } if (best) out = [best]; }
+      }
+      G.cache.set(n, out); return out;
+    }
+    const graphLocate = name => { const k = gNodes(name)[0]; return k ? G.coord.get(k) : null; };
+
+    /* ---------- Liste des gares (SNCF Réseau) : gares voyageurs, dédoublonnées par code UIC ---------- */
+    const GARES_URL = "liste-des-gares.geojson";   // à placer à côté de cette page
+    let garesData = EMPTY_FC;
+    const S = { list: [], cache: new Map() };
+    const STOP = new Set(["TGV", "ST", "STE", "LA", "LE", "LES", "DE", "DU", "DES", "SUR", "EN", "ET", "AU", "AUX", "GARE", "VILLE", "CENTRE", "RER"]);
+    function buildGares(gj) {
+      const seen = new Set(), feats = []; S.list = []; S.cache.clear(); S.df = new Map();
+      for (const f of gj.features) {
+        const p = f.properties; if (seen.has(p.code_uic) || f.geometry?.type !== "Point") continue;
+        seen.add(p.code_uic);
+        const v = p.voyageurs === "O", L = nn(p.libelle), C = nn(p.commune || ""), tgv = /TGV/.test(L);
+        if (v) feats.push({ type: "Feature", properties: { name: p.libelle, commune: p.commune, tgv }, geometry: f.geometry });
+        const tok = new Set([...L.split(" "), ...C.split(" ")]);
+        tok.forEach(t => S.df.set(t, (S.df.get(t) || 0) + 1));
+        S.list.push({ xy: f.geometry.coordinates, L, C, tgv, v, tok });   // les gares sans voyageurs ne servent qu'en dernier recours
+      }
+      garesData = { type: "FeatureCollection", features: feats }; map.getSource("gares")?.setData(garesData);
+      G.cache.clear();
+    }
+    /* Gares desservies mais absentes de la liste SNCF Réseau (gare RATP) : [lon, lat] */
+    const ABSENTES = { "MARNE LA VALLEE CHESSY": [2.7826, 48.8698] };
+    const centroid = r => [r.reduce((a, s) => a + s.xy[0], 0) / r.length, r.reduce((a, s) => a + s.xy[1], 0) / r.length];
+    /* Nom du jeu de données → coordonnées : libellé exact, sinon gares de la ville (centre), sinon libellé le plus long contenu
+       dans le nom, sinon meilleure correspondance de mots (le premier mot significatif doit correspondre, ou au moins deux). */
+    function stationLocate(name) {
+      const n = nn(name); if (!n || !S.list.length) return null;
+      if (S.cache.has(n)) return S.cache.get(n);
+      const find = test => { const r = S.list.filter(test), v = r.filter(s => s.v); return v.length ? v : r; };
+      if (ABSENTES[n]) return ABSENTES[n];
+      let r = find(s => s.L === n);
+      if (!r.length) r = find(s => s.C === n && s.L.startsWith(n + " "));
+      if (!r.length) r = find(s => s.L.startsWith(n + " "));
+      if (!r.length) r = find(s => s.C === n);
+      if (!r.length) { const m = find(s => n.startsWith(s.L + " ")), Lm = Math.max(0, ...m.map(s => s.L.length)); r = m.filter(s => s.L.length === Lm); }
+      if (!r.length) {
+        /* Mots pondérés par leur rareté (un mot présent dans peu de gares pèse plus) */
+        const want = n.split(" ").filter(t => t.length > 1 && !STOP.has(t)), tgv = /TGV/.test(n), w = t => 1 / (S.df.get(t) || 1);
+        let best = null, bs = 0;
+        for (const s of S.list) {
+          const hit = want.filter(t => s.tok.has(t)); if (!hit.length) continue;
+          if (hit.length < 2 && hit[0] !== want[0]) continue;   // le 1er mot significatif, ou au moins deux mots, doivent correspondre
+          const sc = hit.reduce((a, t) => a + w(t), 0) + (tgv && s.tgv ? .5 : 0) + (s.v ? .01 : 0);
+          if (sc > bs) { bs = sc; best = s; }
+        }
+        if (best) r = [best];
+      }
+      const out = r.length ? centroid(r) : null;
+      S.cache.set(n, out); return out;
+    }
+    class Heap {
+      constructor() { this.a = []; }
+      get size() { return this.a.length; }
+      push(x) { const a = this.a; a.push(x); let i = a.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (a[p][0] <= a[i][0]) break;[a[p], a[i]] = [a[i], a[p]]; i = p; } }
+      pop() { const a = this.a, top = a[0], last = a.pop(); if (a.length) { a[0] = last; let i = 0; for (; ;) { let m = i, c = 2 * i + 1; if (c < a.length && a[c][0] < a[m][0]) m = c; if (++c < a.length && a[c][0] < a[m][0]) m = c; if (m === i) break;[a[m], a[i]] = [a[i], a[m]]; i = m; } } return top; }
+    }
+    /* Plus court chemin (en temps) entre toutes les gares d'origine possibles et toutes celles de destination.
+       classic = true : Intercités (jour et nuit), qui roulent sur le réseau classique : les LGV (≥ 250 km/h) sont exclues.
+       Si aucun chemin n'existe sans LGV, on retombe sur le chemin le plus rapide. */
+    const LGV_KMH = 250;
+    /* Points de passage imposés aux TGV / OUIGO, quand le plus court chemin théorique ne correspond pas à la desserte réelle.
+       [gares concernées (nom normalisé), gare de passage] : les TGV vers la Côte d'Opale empruntent la LGV Nord jusqu'à
+       Calais-Fréthun puis descendent par Boulogne, et non la ligne classique par Amiens et Abbeville.
+       Le passage n'est imposé que si l'autre extrémité du trajet est plus loin de la gare de passage que la gare concernée
+       (ex. Paris ou Lille → Étaples, mais pas Boulogne → Étaples). */
+    const VIA = [[/^(ETAPLES|RANG DU FLIERS)\b/, "CALAIS FRETHUN"]];
+    const gDist = (a, b) => { const p = graphLocate(a), q = graphLocate(b); return p && q ? Math.hypot((p[0] - q[0]) * Math.cos(p[1] * Math.PI / 180), p[1] - q[1]) : null; };
+    function viaFor(A, B) {
+      for (const [re, via] of VIA) {
+        const ra = re.test(nn(A)), rb = re.test(nn(B)); if (ra === rb) continue;   // aucune ou les deux extrémités concernées
+        const [x, y] = ra ? [A, B] : [B, A], dx = gDist(x, via), dy = gDist(y, via);
+        if (dx != null && dy != null && dy > dx) return via;
+      }
+      return null;
+    }
+    function gRoute(A, B, classic = false) {
+      if (classic) return gSearch(A, B, true) || gSearch(A, B, false);
+      const v = viaFor(A, B);
+      if (v) { const s1 = gSearch(A, v, false), s2 = gSearch(v, B, false); if (s1 && s2) return [...s1, ...s2]; }
+      return gSearch(A, B, false);
+    }
+    function gSearch(A, B, classic) {
+      const S = gNodes(A), T = new Set(gNodes(B)); if (!S.length || !T.size) return null;
+      const dist = new Map(S.map(k => [k, 0])), prev = new Map(), h = new Heap(); S.forEach(k => h.push([0, k]));
+      while (h.size) {
+        const [d, u] = h.pop(); if (d > dist.get(u)) continue;
+        if (T.has(u)) { const segs = []; let x = u; while (prev.has(x)) { const q = prev.get(x); segs.push({ i: q.i, from: q.u }); x = q.u; } return segs.reverse(); }
+        for (const e of G.adj.get(u) || []) { if (classic && G.feats[e.i].properties.vitesse_max_kmh >= LGV_KMH) continue; const nd = d + e.w; if (nd < (dist.get(e.to) ?? Infinity)) { dist.set(e.to, nd); prev.set(e.to, { u, i: e.i }); h.push([nd, e.to]); } }
+      }
+      return null;
+    }
+    function pathGeo(segs) {
+      const feats = [], coords = [];
+      for (const { i, from } of segs) {
+        const p = G.feats[i].properties, fwd = from === p.code_uic_a; let c = G.feats[i].geometry.coordinates; if (!fwd) c = [...c].reverse();
+        feats.push({ type: "Feature", properties: { v: p.vitesse_max_kmh, a: fwd ? p.gare_a : p.gare_b, b: fwd ? p.gare_b : p.gare_a, km: Math.round(p.longueur_m / 1000) }, geometry: { type: "LineString", coordinates: c } });
+        for (const xy of c) coords.push(xy);
+      }
+      return { feats, coords };
+    }
+    const cumul = coords => { const cum = [0]; for (let i = 1; i < coords.length; i++) { const [x1, y1] = coords[i - 1], [x2, y2] = coords[i]; cum.push(cum[i - 1] + Math.hypot((x2 - x1) * Math.cos((y1 + y2) * Math.PI / 360), y2 - y1) * 111.2); } return cum; };
+
+    /* ---------- API ---------- */
+    /* Endpoint d'export : renvoie tous les résultats d'un coup, sans pagination ni limite de 100. */
+    async function fetchAll(params) {
+      const r = await fetch(`${EXPORT}?${new URLSearchParams({ ...params, limit: -1 })}`);
+      if (!r.ok) throw new Error(`API SNCF : HTTP ${r.status}`);
+      return r.json();
+    }
+    const esc = s => s.replace(/"/g, '\\"');
+
+    /* ---------- UI ---------- */
+    const $ = id => document.getElementById(id);
+    /* Dates en heure locale (toISOString passerait en UTC et décalerait d'un jour après minuit) */
+    const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    $("date").min = iso(today); $("date").value = iso(today);
+    const max = new Date(today); max.setDate(max.getDate() + 29);   // 30 jours, aujourd'hui compris
+    $("date").max = iso(max);
+
+    /* ---------- Calendrier : liste de 30 boutons ----------
+       1er bouton « Aujourd'hui », 2e « Demain », puis la date complète (ex. « Lundi 27 décembre ») jusqu'au 30e jour. */
+    const fromIso = v => { const [y, m, d] = v.split("-").map(Number); return new Date(y, m - 1, d); };
+    const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+    const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+    const fmtLong = d => cap(d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }));
+    const DAYS = Array.from({ length: 30 }, (_, i) => {
+      const d = addDays(today, i);
+      return { k: iso(d), label: i === 0 ? "Aujourd'hui" : i === 1 ? "Demain" : fmtLong(d), rel: i < 2, we: d.getDay() % 6 === 0 };
+    });
+    const monShort = d => d.toLocaleDateString("fr-FR", { month: "short" });
+    /* Le calendrier sert à deux champs : « date » (aller) et « ret » (retour, facultatif : valeur vide = pas de retour) */
+    const DP = { id: "date" };
+    function setDate(v, id = "date") {
+      $(id).value = v;
+      const x = DAYS.find(o => o.k === v);
+      $(id + "-txt").innerHTML = !v ? "Pas de retour" : x && x.rel ? `<b>${x.label}</b>` : (x ? x.label : fmtLong(fromIso(v)));
+      $(id + "-btn").classList.toggle("empty", !v);
+      /* Le retour ne peut pas précéder l'aller */
+      if (id === "date" && $("ret").value && $("ret").value < v) setDate("", "ret");
+    }
+    function dpRender() {
+      const ret = DP.id === "ret", days = ret ? [{ k: "", label: "Pas de retour" }, ...DAYS.filter(o => o.k >= $("date").value)] : DAYS;
+      const first = ret ? fromIso($("date").value) : today;
+      $("dp-sub").textContent = ret ? "Date du retour" : "Date du voyage";
+      $("dp-month").textContent = `${first.getDate()} ${monShort(first)} → ${max.getDate()} ${monShort(max)}`;
+      $("dp-foot").textContent = ret ? "À partir du jour de l'aller" : "Les 30 prochains jours";
+      const cur = $(DP.id).value;
+      $("dp-list").innerHTML = days.map(o => `<button type="button" role="option" class="dp-item${o.k === cur ? " sel" : ""}${o.we ? " we" : ""}" data-k="${o.k}" tabindex="${o.k === cur ? 0 : -1}" aria-selected="${o.k === cur}"><span>${o.label}</span></button>`).join("");
+    }
+    function dpOpen(on, id = DP.id) {
+      const pop = $("dp");
+      $(DP.id + "-btn").setAttribute("aria-expanded", "false");
+      if (!on) { pop.hidden = true; return; }
+      DP.id = id; dpRender();
+      const r = $(id + "-btn").getBoundingClientRect();
+      pop.style.left = `${r.left}px`; pop.style.top = `${r.bottom + 8}px`; pop.style.width = `${Math.max(r.width, 280)}px`;
+      $("dp-list").style.maxHeight = `${Math.max(180, innerHeight - r.bottom - 120)}px`;
+      pop.hidden = false; $(id + "-btn").setAttribute("aria-expanded", "true");
+      const sel = pop.querySelector(".dp-item.sel") || pop.querySelector(".dp-item");
+      sel?.scrollIntoView({ block: "nearest" }); sel?.focus();
+    }
+    function dpPick(k) { const id = DP.id; setDate(k, id); dpOpen(false); $(id + "-btn").focus(); }
+    for (const id of ["date", "ret"])
+      $(id + "-btn").onclick = e => { e.stopPropagation(); dpOpen($("dp").hidden || DP.id !== id, id); };
+    $("dp-list").onclick = e => { const b = e.target.closest(".dp-item"); if (b) dpPick(b.dataset.k); };
+    $("dp-list").onkeydown = e => {
+      const items = [...$("dp-list").children], i = items.indexOf(document.activeElement);
+      const j = { ArrowUp: i - 1, ArrowDown: i + 1, Home: 0, End: items.length - 1 }[e.key];
+      if (j === undefined || !items[j]) return;
+      e.preventDefault(); items[j].focus();
+    };
+    document.addEventListener("click", e => { if (!$("dp").hidden && !e.target.closest("#dp, #date-btn, #ret-btn")) dpOpen(false); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("dp").hidden) { dpOpen(false); $(DP.id + "-btn").focus(); } });
+    addEventListener("resize", () => dpOpen(false));
+    setDate("", "ret");
+    setDate($("date").value);
+
+    /* Fonds de carte : Carte facile (IGN). Plan désaturé par défaut pour faire ressortir les trajets. */
+    const map = new maplibregl.Map({ container: "map", center: [2.5, 46.6], zoom: 5, maxZoom: 18.9, style: mapStyles.desaturated });
+    /* Le sélecteur de Carte facile change de fond via map.setStyle : on force un rechargement complet pour que
+       « style.load » se déclenche à chaque fois et que nos couches (trajets, réseau, gares) soient recréées. */
+    const setStyle0 = map.setStyle.bind(map);
+    map.setStyle = (style, opts) => setStyle0(style, { ...opts, diff: false });
+    map.addControl(new maplibregl.NavigationControl(), "top-right");
+    /* rev = true : recherche « toutes les gares de départ → une destination » (dest0). Les résultats sont alors groupés par gare de départ.
+       hub() = la gare fixe (départ en mode normal, destination en mode inversé) ; ends(n) = [départ, arrivée] du trajet vers / depuis n. */
+    let rev = false, dest0 = null;
+    /* Retour (facultatif) : back = trains du retour (de la gare listée vers la gare fixe, ou l'inverse en mode rev), rDate = sa date */
+    let back = [], rDate = null;
+    const hub = () => rev ? dest0 : origin;
+    const ends = n => rev ? [n, dest0] : [origin, n];
+    let all = [], origin = null, originIata = null, qDate = null, popup = null, routesData = { type: "FeatureCollection", features: [] }, selected = null, routes = [], pathData = { type: "FeatureCollection", features: [] }, pathOf = null;
+
+    function trainIcon() {
+      const c = document.createElement("canvas"); c.width = c.height = 48;
+      const g = c.getContext("2d");
+      g.lineWidth = 3; g.strokeStyle = "#fff"; g.fillStyle = "#1f4e8c";
+      g.beginPath(); g.moveTo(4, 14); g.lineTo(28, 14); g.quadraticCurveTo(44, 16, 45, 26); g.lineTo(45, 31); g.lineTo(4, 31); g.closePath(); g.stroke(); g.fill();
+      g.fillStyle = "#fff"; for (let x = 8; x < 30; x += 7) g.fillRect(x, 18, 5, 6);
+      g.fillStyle = "#12926b"; g.fillRect(4, 27, 41, 3);
+      g.fillStyle = "#1b2a3a"; g.beginPath(); g.arc(13, 34, 3, 0, 7); g.arc(35, 34, 3, 0, 7); g.fill();
+      return g.getImageData(0, 0, 48, 48);
+    }
+    /* Images dessinées en canvas, en haute définition (pixelRatio 2) */
+    const PR = 2;
+    function canvasImg(w, h, draw) {
+      const c = document.createElement("canvas"); c.width = w * PR; c.height = h * PR;
+      const g = c.getContext("2d"); g.scale(PR, PR); draw(g);
+      return g.getImageData(0, 0, w * PR, h * PR);
+    }
+    const rrect = (g, x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+    /* Étiquette des destinations : pastille blanche arrondie, ombre douce, point de couleur du type de train.
+       Seule la partie centrale s'étire (stretchX/Y) pour s'adapter au nom de la gare. */
+    const PILL = { M: 4, H: 24, L: 22, R: 12 };
+    function pillImage(color) {
+      const { M, H, L, R } = PILL, W = L + 2 + R;
+      return canvasImg(W + 2 * M, H + 2 * M, g => {
+        g.shadowColor = "rgba(27,42,58,.22)"; g.shadowBlur = 5; g.shadowOffsetY = 1.5;
+        rrect(g, M, M, W, H, H / 2); g.fillStyle = "#fff"; g.fill();
+        g.shadowColor = "transparent"; g.lineWidth = 1; g.strokeStyle = "rgba(27,42,58,.10)"; g.stroke();
+        g.beginPath(); g.arc(M + 12, M + H / 2, 4, 0, 7); g.fillStyle = color; g.fill();
+      });
+    }
+    function pillOpts() {
+      const { M, H, L } = PILL, W = L + 2 + PILL.R;
+      return { pixelRatio: PR, stretchX: [[(M + L) * PR, (M + L + 2) * PR]], stretchY: [[(M + H / 2 - 1) * PR, (M + H / 2 + 1) * PR]], content: [(M + L - 2) * PR, (M + 5) * PR, (M + W - 10) * PR, (M + H - 5) * PR] };
+    }
+    /* Gare TGV : carré arrondi bleu, liseré blanc, pictogramme de train */
+    function tgvImage() {
+      return canvasImg(30, 30, g => {
+        g.shadowColor = "rgba(27,42,58,.3)"; g.shadowBlur = 4; g.shadowOffsetY = 1;
+        rrect(g, 3, 3, 24, 24, 7); g.fillStyle = "#fff"; g.fill();
+        g.shadowColor = "transparent";
+        rrect(g, 5, 5, 20, 20, 5.5); g.fillStyle = "#1f4e8c"; g.fill();
+        rrect(g, 10, 8.5, 10, 10.5, 2.5); g.fillStyle = "#fff"; g.fill();        // caisse
+        g.fillStyle = "#1f4e8c"; g.fillRect(11.6, 10.3, 6.8, 3.4);                // pare-brise
+        g.beginPath(); g.arc(12.6, 16.4, 1, 0, 7); g.arc(17.4, 16.4, 1, 0, 7); g.fill(); // phares
+        g.strokeStyle = "#fff"; g.lineWidth = 1.4; g.lineCap = "round";
+        g.beginPath(); g.moveTo(12, 19.5); g.lineTo(10.6, 21.6); g.moveTo(18, 19.5); g.lineTo(19.4, 21.6); g.stroke();
+      });
+    }
+    function addImages() {
+      for (const [k, c] of [["TGV", "#12926b"], ["OUIGO", "#e5398a"], ["IC", "#d9822b"], ["ICN", "#6c4ab6"], ["", "#a9b4bf"]])
+        if (!map.hasImage("pill-" + k)) map.addImage("pill-" + k, pillImage(c), pillOpts());
+      if (!map.hasImage("gare-tgv")) map.addImage("gare-tgv", tgvImage(), { pixelRatio: PR });
+    }
+    function addMovers() {
+      if (!map.hasImage("train")) map.addImage("train", trainIcon());
+      map.addSource("movers", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addLayer({ id: "movers", type: "symbol", source: "movers", layout: { "icon-image": "train", "icon-size": .85, "icon-rotate": ["get", "rot"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
+    }
+    /* Met en avant le trajet sélectionné, estompe les autres */
+    function applyHighlight() {
+      if (!map.getLayer("lines")) return;
+      const sel = selected, is = (a, b) => ["case", ["==", ["get", "name"], sel], a, b];
+      if (!sel && pathOf) { pathOf = null; pathData = { type: "FeatureCollection", features: [] }; map.getSource("path")?.setData(pathData); }
+      $("speed").style.display = pathOf ? "block" : "none";
+      map.setPaintProperty("lines", "line-opacity", sel ? is(pathOf === sel ? 0 : 1, .12) : .9);
+      map.setPaintProperty("lines", "line-width", sel ? is(5, 1.5) : 2.5);
+      map.setPaintProperty("pts", "circle-opacity", sel ? is(1, .2) : 1);
+      map.setPaintProperty("pts", "circle-stroke-opacity", sel ? is(1, .2) : 1);
+      map.setPaintProperty("pts", "circle-radius", sel ? is(9, 4) : 6);
+      map.setLayoutProperty("movers", "icon-size", sel ? is(1.1, .7) : .85);
+      if (map.getLayer("pts-label")) { map.setPaintProperty("pts-label", "text-opacity", sel ? is(1, .25) : 1); map.setPaintProperty("pts-label", "icon-opacity", sel ? is(1, .25) : 1); }
+      map.setPaintProperty("movers", "icon-opacity", sel ? is(1, .25) : 1);
+      document.querySelectorAll("#list li").forEach(li => li.classList.toggle("sel", li.dataset.n === sel));
+    }
+    function focusRoute(n) {
+      const r = routes.find(r => r.name === n);
+      if (r) { const b = new maplibregl.LngLatBounds(r.a, r.a).extend(r.b); (r.coords || []).forEach(xy => b.extend(xy)); map.fitBounds(b, { padding: 90, maxZoom: 8 }); }
+    }
+    /* Animation : un petit train suit le tracé réel de la gare de départ à la destination, une seule fois par clic */
+    let anims = [], shown = false;
+    const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    function launch(name, delay = 0) {
+      const r = routes.find(r => r.name === name); if (!r || !r.ok || !r.coords || REDUCE) return;
+      anims = anims.filter(a => a.r.name !== name);
+      anims.push({ r, start: performance.now() + delay, dur: 1800 + Math.min(r.cum[r.cum.length - 1], 900) * 3 });
+    }
+    function pointAt(r, f) {
+      const { coords, cum } = r, target = Math.max(0, Math.min(1, f)) * cum[cum.length - 1];
+      let lo = 0, hi = cum.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cum[m] <= target) lo = m; else hi = m; }
+      const A = coords[lo], B = coords[hi], k = cum[hi] > cum[lo] ? (target - cum[lo]) / (cum[hi] - cum[lo]) : 0;
+      return [A[0] + (B[0] - A[0]) * k, A[1] + (B[1] - A[1]) * k];
+    }
+    function tick(now) {
+      const src = map.getSource("movers");
+      if (src && (anims.length || shown)) {
+        anims = anims.filter(a => now - a.start < a.dur);
+        const feats = [];
+        for (const a of anims) {
+          const t = (now - a.start) / a.dur; if (t < 0) continue;
+          const f = t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+          const P = pointAt(a.r, f), A = pointAt(a.r, f - .02), B = pointAt(a.r, f + .02);
+          const rot = Math.atan2((B[0] - A[0]) * Math.cos((A[1] + B[1]) * Math.PI / 360), B[1] - A[1]) * 180 / Math.PI - 90;
+          feats.push({ type: "Feature", properties: { name: a.r.name, rot }, geometry: { type: "Point", coordinates: P } });
+        }
+        src.setData({ type: "FeatureCollection", features: feats });
+        shown = feats.length > 0;
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+
+    /* Les sources/couches sont perdues à chaque changement de style : on les recrée à chaque "style.load". */
+    function addOverlays() {
+      const vis = RAIL.lgv ? "visible" : "none";
+      map.addSource("lgv", { type: "geojson", data: tracesData });
+      const fast = [">=", ["get", "vitesse_max_kmh"], 250];   // LGV
+      map.addLayer({ id: "lgv-casing", type: "line", source: "lgv", layout: { visibility: vis, "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["case", fast, 5, 3], "line-opacity": .8 } });
+      map.addLayer({ id: "lgv", type: "line", source: "lgv", layout: { visibility: vis, "line-join": "round" }, paint: { "line-color": ["case", fast, "#c0392b", "#7f8c8d"], "line-width": ["case", fast, 2.2, 1.2] } });
+      /* Gares voyageurs : petits points discrets à petite échelle, gares TGV mises en avant, noms au zoom (fonds vectoriels) */
+      const gvis = RAIL.gares ? "visible" : "none", tgv = ["get", "tgv"];
+      map.addSource("gares", { type: "geojson", data: garesData });
+      addImages();
+      /* Gares : petits points discrets ; les gares TGV deviennent une icône dès le zoom 7 (le point reste, invisible, pour le clic) */
+      map.addLayer({
+        id: "gares", type: "circle", source: "gares", layout: { visibility: gvis, "circle-sort-key": ["case", tgv, 1, 0] },
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, ["case", tgv, 3, 1.5], 9, ["case", tgv, 6, 3], 13, ["case", tgv, 9, 5]],
+          "circle-color": ["case", tgv, "#1f4e8c", "#ffffff"],
+          "circle-stroke-color": ["case", tgv, "#ffffff", "#8aa0b8"],
+          "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 5, ["case", tgv, 1, .8], 10, ["case", tgv, 2, 1.5], 13, 2],
+          "circle-opacity": ["interpolate", ["linear"], ["zoom"], 4, ["case", tgv, .7, .6], 6.5, 1, 7, ["case", tgv, 0, 1]],
+          "circle-stroke-opacity": ["interpolate", ["linear"], ["zoom"], 4, ["case", tgv, .7, .6], 6.5, 1, 7, ["case", tgv, 0, 1]]
+        }
+      });
+      map.addLayer({
+        id: "gares-tgv", type: "symbol", source: "gares", minzoom: 6.5, filter: ["==", tgv, true],
+        layout: { visibility: gvis, "icon-image": "gare-tgv", "icon-size": ["interpolate", ["linear"], ["zoom"], 6.5, .6, 9, .85, 13, 1.1], "icon-allow-overlap": true, "icon-ignore-placement": true },
+        paint: { "icon-opacity": ["interpolate", ["linear"], ["zoom"], 6.5, 0, 7, 1] }
+      });
+      /* Polices disponibles dans le fond de carte (pour les étiquettes) : une normale et, si possible, une grasse */
+      const st = map.getStyle(), fonts = st.glyphs ? st.layers.map(l => l.layout?.["text-font"]).filter(f => Array.isArray(f) && typeof f[0] === "string") : [];
+      const font = fonts.find(f => !/bold|medium|semi/i.test(f[0])) || fonts[0], bold = fonts.find(f => /bold/i.test(f[0])) || fonts.find(f => /medium|semi/i.test(f[0])) || font;
+      if (font) map.addLayer({
+        id: "gares-label", type: "symbol", source: "gares", minzoom: 7, filter: [">=", ["zoom"], ["case", tgv, 7, 9.5]],
+        layout: {
+          visibility: gvis, "text-field": ["get", "name"], "text-font": ["case", tgv, ["literal", bold], ["literal", font]],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 7, ["case", tgv, 11.5, 10], 13, ["case", tgv, 14, 12]], "text-letter-spacing": .01,
+          "text-variable-anchor": ["top", "bottom", "right", "left"], "text-radial-offset": ["case", tgv, 1.25, .8], "text-optional": true, "symbol-sort-key": ["case", tgv, 0, 1]
+        },
+        paint: { "text-color": ["case", tgv, "#1b2a3a", "#5a6b7d"], "text-halo-color": "rgba(255,255,255,.96)", "text-halo-width": 1.8, "text-halo-blur": .2 }
+      });
+      map.addSource("routes", { type: "geojson", data: routesData });
+      map.addLayer({ id: "lines", type: "line", source: "routes", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 2.5, "line-opacity": .9 } });
+      /* Destinations : anneau de la couleur du train, centre blanc */
+      map.addLayer({ id: "pts", type: "circle", source: "routes", filter: ["==", ["geometry-type"], "Point"], paint: { "circle-radius": 6, "circle-color": "#ffffff", "circle-stroke-width": 3.2, "circle-stroke-color": KCOL } });
+      /* Noms des destinations dans une pastille blanche (point de couleur = type de train), placée à côté de la gare */
+      if (font) map.addLayer({
+        id: "pts-label", type: "symbol", source: "routes", filter: ["==", ["geometry-type"], "Point"],
+        layout: {
+          "text-field": ["get", "label"], "text-font": ["literal", bold], "text-size": ["interpolate", ["linear"], ["zoom"], 4, 11.5, 8, 12.5, 12, 14],
+          "icon-image": ["concat", "pill-", ["coalesce", ["get", "kind"], ""]], "icon-text-fit": "both", "icon-text-fit-padding": [0, 0, 0, 0],
+          "text-variable-anchor-offset": ["left", [1.9, 0], "right", [-1.3, 0], "top", [0, 1.5], "bottom", [0, -1.5]],
+          "text-justify": "auto", "symbol-sort-key": ["case", ["get", "ok"], 0, 1], "text-padding": 3, "icon-padding": 3
+        },
+        paint: { "text-color": ["case", ["get", "ok"], "#1b2a3a", "#8795a5"] }
+      });
+      map.addSource("path", { type: "geojson", data: pathData });
+      map.addLayer({ id: "path-casing", type: "line", source: "path", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#1b2a3a", "line-width": 8, "line-opacity": .55 } }, "pts");
+      map.addLayer({ id: "path", type: "line", source: "path", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["interpolate", ["linear"], ["get", "v"], 30, "#440154", 100, "#3b528b", 160, "#21908d", 230, "#5dc863", 320, "#fde725"], "line-width": 5 } }, "pts");
+    }
+    map.on("style.load", () => { addOverlays(); addMovers(); applyHighlight(); });
+    /* Seules les gares sont cliquables (pas les tronçons) */
+    /* Le point et la pastille du nom ouvrent tous deux la fiche de la destination */
+    const PTS = () => ["pts", "pts-label"].filter(l => map.getLayer(l));
+    for (const l of ["pts", "pts-label"]) {
+      map.on("click", l, e => show(e.features[0].properties.name));
+      map.on("mouseenter", l, () => map.getCanvas().style.cursor = "pointer");
+      map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
+    }
+    map.on("click", e => {
+      if (!map.getLayer("pts") || !map.queryRenderedFeatures(e.point, { layers: PTS() }).length) {
+        selected = null; popup?.remove(); applyHighlight();
+        /* Clic sur une gare de la liste (hors destinations) : petite fiche */
+        const g = map.getLayer("gares") && map.queryRenderedFeatures(e.point, { layers: ["gares-tgv", "gares"].filter(l => map.getLayer(l)) })[0];
+        if (g) popup = new maplibregl.Popup({ maxWidth: "240px", className: "gare-pop" }).setLngLat(g.geometry.coordinates)
+          .setHTML(`<b>${g.properties.name}</b>${g.properties.tgv ? '<span class="badge" style="background:#1f4e8c">Gare TGV</span>' : ""}<br><span class="t">${clean(g.properties.commune || "")}</span>`).addTo(map);
+      }
+    });
+    for (const l of ["gares", "gares-tgv"]) {
+      map.on("mouseenter", l, () => { if (map.getCanvas().style.cursor !== "pointer") map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
+    }
+
+    /* Liste des destinations. Départ « toutes les gares » : pas d'entrée « Toutes les destinations » (plusieurs départs ET plusieurs
+       arrivées sont interdits), mais une invite non choisissable tant qu'aucune destination n'est sélectionnée. */
+    const ALL_O = "*";
+    let NAMES = [];
+    function destOptions(names, keep) {
+      const sel = $("dest"), allO = $("origin").value === ALL_O;
+      sel.innerHTML = (allO ? `<option value="" disabled>Choisissez une destination</option>` : `<option value="">Toutes les destinations</option>`)
+        + names.map(n => `<option>${n}</option>`).join("");
+      const o = [...sel.options].find(o => o.value === (names.includes(keep) ? keep : ""));
+      if (o) o.selected = true;
+    }
+    $("origin").addEventListener("change", () => destOptions(NAMES, $("dest").value));
+
+    async function loadOrigins() {
+      try {
+        const rows = (await fetchAll({ select: `${F.originIata},${F.origin}`, group_by: `${F.originIata},${F.origin}`, order_by: F.origin })).filter(r => r[F.originIata]);
+        /* Villes à plusieurs gares : une entrée « toutes les gares » regroupe leurs codes IATA, les gares restent aussi choisissables seules. */
+        const MULTI = ["PARIS", "LYON", "LILLE", "MARSEILLE", "AVIGNON"];
+        const groups = MULTI.map(city => {
+          const codes = [...new Set(rows.filter(r => norm(r[F.origin]).startsWith(city)).map(r => r[F.originIata]))];
+          return codes.length > 1 ? [codes.join(","), `${city[0]}${city.slice(1).toLowerCase()} (toutes les gares)`] : null;
+        }).filter(Boolean);
+        /* « * » = toutes les gares de départ (une seule destination est alors exigée) */
+        $("origin").innerHTML = [[ALL_O, "Toutes les gares de départ"], ...groups, ...rows.map(r => [r[F.originIata], r[F.origin]])].map(([v, t]) => `<option value="${v}">${t}</option>`).join("");
+        const p = [...$("origin").options].find(o => norm(o.text).startsWith("PARIS")); if (p) p.selected = true;
+        /* Destination choisissable tout de suite : toutes les gares (remplacée après la recherche par les destinations desservies) */
+        NAMES = [...new Set(rows.map(r => r[F.origin]))];
+        destOptions(NAMES, "");
+      } catch (e) { $("origin").innerHTML = "<option>Erreur de chargement</option>"; $("status").textContent = e.message; }
+    }
+
+    /* Aller et retour le même jour : on ne garde que les combinaisons faisables.
+       - aller : uniquement les trains arrivant le jour même et avant le dernier départ retour ;
+       - retour : uniquement les trains partant après l'arrivée du premier train aller.
+       Si aucune combinaison n'existe, les deux listes sont vides (la gare n'est alors pas disponible). */
+    const mins = h => { const [a, b] = h.split(":"); return +a * 60 + +b; };
+    function sameDay(out, bk) {
+      if (!bk || rDate !== qDate) return [out, bk];
+      const o = out.filter(t => mins(t.arr) >= mins(t.dep));   // arrivée le lendemain : pas de retour possible le jour même
+      const firstArr = Math.min(...o.map(t => mins(t.arr)));
+      const b = bk.filter(t => mins(t.dep) > firstArr);
+      const lastDep = Math.max(...b.map(t => mins(t.dep)));
+      return [o.filter(t => mins(t.arr) < lastDep), b];
+    }
+    /* Trains groupés par gare listée (destination, ou départ en mode rev). Pour le retour (isBack), cette gare est l'autre extrémité. */
+    function group(rows = all, isBack = false) {
+      const g = new Map();
+      for (const r of rows) {
+        const n = rev !== isBack ? r[F.origin] : r[F.dest]; if (!g.has(n)) g.set(n, []);
+        const x = { dep: r[F.dep], arr: r[F.arr], no: r[F.train], dIata: r[F.destIata], from: r[F.origin], to: r[F.dest], oIata: r[F.originIata], ok: isOk(r[F.ok]), entity: r[F.entity], axe: r[F.axe] };
+        x.kind = kindOf(x); g.get(n).push(x);
+      }
+      return g;
+    }
+
+    /* Gare de départ : marqueur dédié (élément HTML, conservé lors des changements de fond de plan) */
+    let originMarker = null;
+    function setOriginMarker(xy) {
+      originMarker?.remove(); originMarker = null;
+      if (!xy) return;
+      const el = document.createElement("div"); el.className = "origin-mk";
+      el.innerHTML = `<span class="origin-pulse"></span><span class="origin-pulse p2"></span><span class="origin-pin"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="13" rx="3"/><path d="M5 10h14M9 20l-2 2M15 20l2 2M9 13h.01M15 13h.01"/></svg></span><span class="origin-lbl"><small>${rev ? "Arrivée" : "Départ"}</small>${clean(hub())}</span>`;
+      originMarker = new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat(xy).addTo(map);
+    }
+
+    async function render() {
+      const g = group(), gb = rDate ? group(back, true) : null, wanted = $("dest").value, full = $("full").checked, ks = $("kind").value;
+      await garesReady;
+      await Promise.all([geocodeMissing([hub(), ...g.keys()]), tracesReady]);
+      selected = null; routes = []; popup?.remove();
+      const feats = [], items = [], lost = [], bounds = new maplibregl.LngLatBounds();
+      const o = locate(hub());   // gare fixe : départ (mode normal) ou destination (toutes les gares de départ)
+      for (const [name, all0] of g) {
+        if (!rev && wanted && name !== wanted) continue;
+        const trains = ks ? all0.filter(t => t.kind === ks) : all0;
+        if (!trains.length) continue;
+        trains.sort((a, b) => a.dep.localeCompare(b.dep));
+        /* Avec une date de retour, une gare n'est « disponible » que s'il reste des places à l'aller ET au retour */
+        const rfree0 = gb ? (gb.get(name) || []).filter(t => t.ok && (!ks || t.kind === ks)).sort((a, b) => a.dep.localeCompare(b.dep)) : null;
+        const [free, rfree] = sameDay(trains.filter(t => t.ok), rfree0), ok = free.length > 0 && (!rfree || rfree.length > 0), kind = ok ? bestKind(free) : "";
+        if (!ok && !full) continue;
+        items.push({ name, trains, ok, free, rfree });
+        const c = locate(name);
+        if (!c || !o) { lost.push(name); continue; }
+        /* Tracé ferroviaire réel (pas de ligne droite) : si aucun tracé n'est trouvé, seule la gare est affichée */
+        /* Destination desservie uniquement par des Intercités : tracé sur lignes classiques */
+        const classic = (ok ? free : trains).every(t => t.kind === "IC" || t.kind === "ICN");
+        const segs = G.ready ? gRoute(...ends(name), classic) : null, coords = segs?.length ? pathGeo(segs).coords : null;
+        if (coords) feats.push({ type: "Feature", properties: { name, ok, kind }, geometry: { type: "LineString", coordinates: coords } });
+        feats.push({ type: "Feature", properties: { name, ok, kind, label: clean(name) }, geometry: { type: "Point", coordinates: c } });
+        const [a, b] = rev ? [c, o] : [o, c];
+        routes.push(coords ? { name, a, b, ok, classic, coords, cum: cumul(coords) } : { name, a, b, ok, classic });
+        bounds.extend(c); if (coords) for (const xy of coords) bounds.extend(xy);
+      }
+      if (o) bounds.extend(o);
+      setOriginMarker(o);
+      routesData = { type: "FeatureCollection", features: feats };
+      map.getSource("routes")?.setData(routesData);
+      if (feats.length) map.fitBounds(bounds, { padding: 60, maxZoom: 8 });
+      items.sort((a, b) => b.ok - a.ok || a.name.localeCompare(b.name));
+      const deps = l => l.length ? `${l.length} train(s) : ${l.map(t => t.dep).join(", ")}` : "complet";
+      $("list").innerHTML = items.map(i => `<li data-n="${i.name}"><b><span class="dot ${i.ok ? "ok" : ""}"></span>${i.name}</b>
+    ${!i.rfree ? `<span class="t">${i.ok ? deps(i.free) : "Complet"}</span>`
+          : `<span class="t">Aller : ${deps(i.free)}</span><br><span class="t">Retour : ${deps(i.rfree)}</span><br>`}
+    ${[...new Set([...i.free, ...(i.rfree || [])].map(t => t.kind).filter(k => KIND[k]))].map(k => `<span class="badge" style="background:${KIND[k][1]}">${KIND[k][0]}</span>`).join("")}</li>`).join("");
+      $("list").querySelectorAll("li").forEach(li => li.onclick = () => { show(li.dataset.n); focusRoute(li.dataset.n); });
+      applyHighlight();
+      const nOk = items.filter(i => i.ok).length;
+      $("status").textContent = (rev ? `${nOk} gare(s) de départ avec des places MAX JEUNE vers ${clean(dest0)}` : `${nOk} destination(s) avec des places MAX JEUNE`)
+        + (rDate ? ` à l'aller (${frDate(qDate)}) et au retour (${frDate(rDate)}).` : ".") + (lost.length ? ` Non localisées sur la carte : ${lost.join(", ")}.` : "");
+    }
+
+    function setPath(name) {
+      const r = routes.find(r => r.name === name);
+      pathData = { type: "FeatureCollection", features: [] }; pathOf = null;
+      if (r && G.ready) {
+        const segs = gRoute(...ends(name), r.classic);
+        if (segs && segs.length) { const g = pathGeo(segs); pathData.features = g.feats; r.coords = g.coords; r.cum = cumul(g.coords); pathOf = name; }
+      }
+      map.getSource("path")?.setData(pathData);
+    }
+    async function show(name) {
+      const t0 = group().get(name); if (!t0) return;
+      /* Uniquement les trains avec des places MAX JEUNE, classés par heure de départ */
+      const freeSorted = l => l.filter(x => x.ok).sort((a, b) => a.dep.localeCompare(b.dep) || a.arr.localeCompare(b.arr));
+      const [t, tb] = sameDay(freeSorted(t0), rDate ? freeSorted(group(back, true).get(name) || []) : null);
+      const c = locate(name), [A, B] = ends(name);
+      if (popup) popup.remove();
+      selected = name; setPath(name); applyHighlight(); launch(name);
+      const ids = new Map();
+      await Promise.all([...new Set([...t, ...(tb || [])].flatMap(x => [x.from, x.to]))].map(async n => ids.set(n, await tlId(n))));
+      if (selected !== name) return;
+      const dur = x => { const m = h => { const [a, b] = h.split(":"); return +a * 60 + +b; }; let d = m(x.arr) - m(x.dep); if (d < 0) d += 1440; return `${Math.floor(d / 60)}h${String(d % 60).padStart(2, "0")}`; };
+      /* Départ « ville (toutes les gares) » : on précise la gare de la ville concernée (départ à l'aller, arrivée au retour) */
+      const multi = originIata.includes(",");
+      const rowsOf = (list, date, isBack) => list.map(x => {
+        const o = ids.get(x.from), d = ids.get(x.to), k = KIND[x.kind];
+        return `<div class="trow">
+    <div class="ttime"><b>${x.dep}</b><span class="tdur">${dur(x)}</span><b>${x.arr}</b></div>
+    <div class="tmeta">${k ? `<span class="badge" style="background:${k[1]}">${k[0]}</span>` : ""}<span>Train ${x.no}</span>${multi ? `<span>${isBack ? `vers ${clean(x.to)}` : `depuis ${clean(x.from)}`}</span>` : ""}</div>
+    <div class="tbtn"><a class="book" href="${sncfLink(x.oIata, x.dIata, date, x.dep)}" target="_blank" rel="noopener">SNCF Connect</a><a class="book alt" href="${trainlineLink(o, d, date, x.dep)}" target="_blank" rel="noopener"${o && d ? "" : ` data-q="${phrase(x.from, x.to, date, x.dep)}"`}>Trainline</a></div></div>`;
+      }).join("") || `<div class="tempty">Aucune place MAX JEUNE ce jour-là.</div>`;
+      const nTr = n => `<b>${n}</b> train${n > 1 ? "s" : ""}`;
+      const rows = !tb ? rowsOf(t, qDate, false)
+        : `<div class="psec">Aller · ${frDate(qDate)} · ${t.length} train${t.length > 1 ? "s" : ""}</div>${rowsOf(t, qDate, false)}
+    <div class="psec">Retour · ${clean(B)} → ${clean(A)} · ${frDate(rDate)} · ${tb.length} train${tb.length > 1 ? "s" : ""}</div>${rDate === qDate ? `<div class="hint psame">Aller-retour dans la journée : seuls les trains compatibles sont affichés (retour après l'arrivée du premier aller).</div>` : ""}${rowsOf(tb, rDate, true)}`;
+      const html = `<div class="pop-head" title="Glisser pour déplacer"><span class="grip" aria-hidden="true"></span>
+    <div class="ptitle">${clean(A)} <span class="arrow">${tb ? "⇄" : "→"}</span> ${clean(B)}</div>
+    <div class="psub">${tb ? `Aller ${frDate(qDate)} · ${nTr(t.length)} — Retour ${frDate(rDate)} · ${nTr(tb.length)}` : `${frDate(qDate)} · ${nTr(t.length)} MAX JEUNE`}</div></div>
+    <button class="pop-x" type="button" title="Fermer" aria-label="Fermer"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button>
+    <div class="pop-body">${rows}
+    ${pathOf === name ? `<div class="pfoot">Tracé réel : ${pathData.features.length} tronçon(s), jusqu'à ${Math.max(...pathData.features.map(f => f.properties.v))} km/h</div>` : ""}<div class="hint">Les boutons ouvrent la recherche de ce train (choisissez ensuite le tarif MAX JEUNE sur SNCF Connect).</div></div>`;
+      if (c) {
+        popup = new maplibregl.Popup({ maxWidth: "320px", closeButton: false, closeOnClick: false, className: "trip-pop" }).setLngLat(c).setHTML(html).addTo(map);
+        popup.on("close", () => { if (selected === name) { selected = null; applyHighlight(); } });
+        makeDraggable(popup);
+      }
+    }
+    /* Infobulle déplaçable par son en-tête, fermée par la croix */
+    function makeDraggable(p) {
+      const el = p.getElement(), head = el.querySelector(".pop-head");
+      el.querySelector(".pop-x").onclick = () => p.remove();
+      head.addEventListener("pointerdown", e => {
+        if (e.target.closest(".pop-x") || e.button !== 0) return;
+        e.preventDefault(); head.setPointerCapture(e.pointerId);
+        /* Fige l'ancrage courant pour éviter que l'infobulle ne « saute » de côté pendant le déplacement */
+        const anc = [...el.classList].find(k => k.startsWith("maplibregl-popup-anchor-"));
+        if (anc) p.options.anchor = anc.replace("maplibregl-popup-anchor-", "");
+        let last = [e.clientX, e.clientY];
+        const move = ev => {
+          const pt = map.project(p.getLngLat());
+          p.setLngLat(map.unproject([pt.x + ev.clientX - last[0], pt.y + ev.clientY - last[1]]));
+          last = [ev.clientX, ev.clientY]; el.classList.add("moved");
+        };
+        const up = () => { head.removeEventListener("pointermove", move); head.removeEventListener("pointerup", up); head.removeEventListener("pointercancel", up); };
+        head.addEventListener("pointermove", move); head.addEventListener("pointerup", up); head.addEventListener("pointercancel", up);
+      });
+    }
+    document.addEventListener("click", e => {
+      const a = e.target.closest(".book"); if (!a) return;
+      const q = a.dataset.q; if (!q) return;
+      navigator.clipboard?.writeText(q).catch(() => { });
+      $("status").textContent = `Recherche copiée : « ${q} ». Collez-la dans la recherche de Trainline.`;
+    });
+
+    $("go").onclick = async () => {
+      const oIata = $("origin").value, allO = oIata === ALL_O, d0 = $("dest").value, date = $("date").value, ret = $("ret").value;
+      /* Toutes les gares de départ : une destination précise est obligatoire */
+      if (allO && !d0) {
+        $("status").textContent = "Avec « Toutes les gares de départ », choisissez une destination.";
+        setTimeout(() => $("dest-btn").click());
+        return;
+      }
+      $("go").disabled = true; $("status").textContent = "Recherche en cours…";
+      try {
+        const codes = allO ? "" : oIata.split(",").map(c => `"${esc(c)}"`).join(",");
+        const where = allO ? `${F.date}=date'${date}' AND ${F.dest}="${esc(d0)}"` : `${F.date}=date'${date}' AND ${F.originIata} IN (${codes})`;
+        /* Retour : trains qui reviennent vers la gare de départ (ou qui repartent de la destination fixe en mode « toutes les gares ») */
+        const whereBack = !ret ? null : allO ? `${F.date}=date'${ret}' AND ${F.origin}="${esc(d0)}"` : `${F.date}=date'${ret}' AND ${F.destIata} IN (${codes})`;
+        const [out, bk] = await Promise.all([fetchAll({ where }), whereBack ? fetchAll({ where: whereBack }) : []]);
+        all = out; back = bk; rDate = ret || null;
+        rev = allO; dest0 = allO ? d0 : null; originIata = oIata; qDate = date;
+        origin = allO ? null : $("origin").selectedOptions[0].text;
+        /* Mode normal : destinations desservies ; la destination déjà choisie est conservée */
+        if (!allO) {
+          const names = [...new Set(all.map(r => r[F.dest]))];
+          if (d0 && !names.includes(d0)) names.push(d0);
+          destOptions(names.sort(), d0);
+        }
+        $("dest").disabled = false;
+        if (!all.length) $("status").textContent = allO ? "Aucun train trouvé vers cette destination à cette date." : "Aucun train trouvé pour cette date et cette gare.";
+        else render();
+      } catch (e) { $("status").textContent = e.message; }
+      $("go").disabled = false;
+    };
+    $("full").onchange = $("kind").onchange = () => all.length && render();
+    /* Changer de destination : simple filtre en mode normal ; nouvelle recherche si toutes les gares de départ sont demandées */
+    $("dest").onchange = () => {
+      if ($("origin").value === ALL_O) { if ($("dest").value && (all.length || rev)) $("go").click(); }
+      else if (all.length && !rev) render();
+    };
+    /* Inverser départ et destination. « Toutes les gares de départ » ↔ « Toutes les destinations » ;
+       une ville à plusieurs gares (départ) devient sa première gare présente dans la liste des destinations. */
+    $("swap").onclick = () => {
+      const oSel = $("origin"), oVal = oSel.value, dVal = $("dest").value, oOpts = [...oSel.options];
+      if (!NAMES.length || (oVal === ALL_O && !dVal)) return;   // rien à inverser (aucune destination choisie)
+      let newDest = "";
+      if (oVal !== ALL_O) {
+        const codes = oVal.split(",");
+        newDest = oOpts.filter(o => codes.includes(o.value) && !o.value.includes(",")).map(o => o.text).find(n => NAMES.includes(n)) || "";
+        if (!newDest) { $("status").textContent = "Cette gare de départ ne peut pas servir de destination."; return; }
+      }
+      const newOrigin = dVal ? oOpts.find(o => o.value !== ALL_O && !o.value.includes(",") && o.text === dVal) : oOpts.find(o => o.value === ALL_O);
+      if (!newOrigin) { $("status").textContent = `${clean(dVal)} n'est pas une gare de départ du jeu de données MAX JEUNE.`; return; }
+      oSel.value = newOrigin.value; oSel.dispatchEvent(new Event("change"));   // reconstruit la liste des destinations
+      destOptions(NAMES, newDest);
+      /* Des résultats étaient affichés : on relance la recherche dans l'autre sens */
+      if (all.length || rev) $("go").click();
+    };
+    /* Sélecteur de cartes Carte facile : fonds + surcouches. On y ajoute nos deux couches (tronçons, gares)
+       sous forme de cartes identiques à celles des surcouches de Carte facile. */
+    const RAIL = { lgv: true, gares: true };
+    const RAIL_LAYERS = { lgv: ["lgv", "lgv-casing"], gares: ["gares", "gares-tgv", "gares-label"] };
+    const svgThumb = body => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#eef1f4"/>${body}</svg>`);
+    const RAIL_CARDS = [
+      ["lgv", "Tronçons ferroviaires", svgThumb(`<path d="M-4 52 C 14 44 22 30 34 26 S 56 12 70 6" fill="none" stroke="#fff" stroke-width="7"/><path d="M-4 52 C 14 44 22 30 34 26 S 56 12 70 6" fill="none" stroke="#c0392b" stroke-width="3.5"/><path d="M6 -4 C 14 18 24 30 26 44 S 30 60 34 70" fill="none" stroke="#7f8c8d" stroke-width="2"/><path d="M40 70 C 42 52 50 44 70 40" fill="none" stroke="#7f8c8d" stroke-width="2"/>`)],
+      ["gares", "Gares voyageurs", svgThumb(`<circle cx="22" cy="24" r="10" fill="#1f4e8c" opacity=".14"/><circle cx="22" cy="24" r="6" fill="#1f4e8c" stroke="#fff" stroke-width="2.5"/><circle cx="44" cy="40" r="10" fill="#1f4e8c" opacity=".14"/><circle cx="44" cy="40" r="6" fill="#1f4e8c" stroke="#fff" stroke-width="2.5"/><circle cx="16" cy="48" r="3.5" fill="#fff" stroke="#5b7fae" stroke-width="2"/><circle cx="50" cy="14" r="3.5" fill="#fff" stroke="#5b7fae" stroke-width="2"/><circle cx="34" cy="54" r="3.5" fill="#fff" stroke="#5b7fae" stroke-width="2"/>`)]
+    ];
+    class MapSelectorPlus extends MapSelectorControl {
+      onAdd(m) {
+        const el = super.onAdd(m);
+        const list = this._panel.querySelectorAll(".cartefacile-ctrl-map-selector-card-list")[1];
+        const first = list.firstChild;   // nos couches passent avant celles de Carte facile
+        for (const [id, title, thumb] of RAIL_CARDS) {
+          const card = this._createCard(`rail-${id}`, title, thumb, "overlay", () => {
+            RAIL[id] = !RAIL[id];
+            card.classList.toggle("active", RAIL[id]); card.setAttribute("aria-checked", String(RAIL[id]));
+            RAIL_LAYERS[id].forEach(l => map.getLayer(l) && map.setLayoutProperty(l, "visibility", RAIL[id] ? "visible" : "none"));
+          });
+          card.classList.toggle("active", RAIL[id]); card.setAttribute("aria-checked", String(RAIL[id]));
+          list.insertBefore(card, first);
+        }
+        return el;
+      }
+    }
+    map.addControl(new MapSelectorPlus({ styles: ["desaturated", "simple", "aerial"], overlays: ["administrativeBoundaries"] }), "bottom-left");
+
+    /* Loupe : recherche d'une gare de départ */
+    const fold = t => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+    function pickStation(opt) {
+      $("origin").value = opt.value; $("origin").dispatchEvent(new Event("change")); $("sq").value = clean(opt.text); $("sres").innerHTML = "";
+      const c = locate(opt.text); if (c) map.flyTo({ center: c, zoom: 7 });
+      $("go").click();
+    }
+    $("sbtn").onclick = () => { $("search").classList.toggle("open"); if ($("search").classList.contains("open")) $("sq").focus(); };
+    $("sq").oninput = () => {
+      const q = fold($("sq").value.trim());
+      const res = q ? [...$("origin").options].filter(o => o.value !== ALL_O && fold(o.text).includes(q)).slice(0, 8) : [];
+      $("sres").innerHTML = res.map(o => `<li data-i="${o.value}">${clean(o.text)}</li>`).join("");
+    };
+    $("sq").onkeydown = e => { if (e.key === "Enter") { const li = $("sres").querySelector("li"); if (li) li.click(); } };
+    $("sres").onclick = e => { const li = e.target.closest("li"); if (li) pickStation([...$("origin").options].find(o => o.value === li.dataset.i)); };
+    /* Charge le GeoJSON du dossier. En http(s) : fetch du .geojson ; en file:// (fetch interdit par le navigateur) :
+       sa copie .js (window.TRACES_GEOJSON), régénérée avec make-traces-js.py si le .geojson change. */
+    const loadScript = src => new Promise((ok, ko) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = ko; document.head.append(s); });
+    async function loadGeo(url, globalName, build, label) {
+      try { const r = await fetch(url); if (!r.ok) throw 0; build(await r.json()); return; } catch { }
+      try { await loadScript(url.replace(/\.geojson$/, ".js")); build(window[globalName]); }
+      catch { $("status").textContent = `${label} introuvable(s) (${url}).`; }
+    }
+    const tracesReady = loadGeo(TRACES_URL, "TRACES_GEOJSON", buildGraph, "Tracés ferroviaires");
+    const garesReady = loadGeo(GARES_URL, "GARES_GEOJSON", buildGares, "Liste des gares");
+    loadOrigins();
+  </script>
+  <!-- Listes déroulantes des gares (départ / destination).
+       Script indépendant de la carte : il fonctionne même si la carte ou ses fonds ne se chargent pas.
+       Le <select> caché garde la valeur (lu par le reste du code) ; un clic sur le champ ouvre la liste :
+       recherche à la loupe en haut, puis les 20 gares les plus importantes, puis toutes les autres de A à Z. -->
+  <script>
+    (() => {
+      const $ = id => document.getElementById(id);
+      const fold = t => String(t).normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
+      const norm = s => fold(s).replace(/\(.*?\)/g, "").replace(/[-']/g, " ").replace(/\s+/g, " ").trim();
+      const clean = n => n.replace(/\s*\(.*?\)/g, "").toLowerCase().replace(/(^|[\s-])\S/g, m => m.toUpperCase());
+      const html = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+      const ALL_STATIONS = /\(toutes les gares\)/i;
+      const disp = t => ALL_STATIONS.test(t) ? `${clean(t)} · toutes les gares` : clean(t);
+      /* Une entrée = un nom ou une liste de noms préférés (le nom exact d'abord, sinon le premier qui commence par ce nom) */
+      const TOP20 = ["PARIS", "LYON", ["MARSEILLE", "MARSEILLE ST CHARLES"], "LILLE", "BORDEAUX", "TOULOUSE", "NANTES", "STRASBOURG", "RENNES", "MONTPELLIER",
+        "NICE", /CDG|ROISSY|CHARLES DE GAULLE/, "MARNE LA VALLEE", ["AVIGNON", "AVIGNON TGV"], ["AIX EN PROVENCE", "AIX EN PROVENCE TGV"], "TOURS", "DIJON", "LE MANS", "ANGERS", "GRENOBLE"];
+
+      /* Entrées spéciales (« Toutes les destinations », « Toutes les gares de départ ») : affichées telles quelles, en tête de liste.
+         L'invite « Choisissez une destination » (désactivée) n'apparaît pas dans la liste. */
+      const special = o => o.value === "" || o.value === "*";
+      const lab = o => special(o) ? o.text : disp(o.text);
+      /* Options rangées : [entrée spéciale], 20 gares principales, puis le reste de A à Z */
+      function orderedOptions(sel) {
+        const opts = [...sel.options], head = opts.filter(o => special(o) && !o.disabled), rest = opts.filter(o => !special(o));
+        const top = [];
+        for (const k of TOP20) {
+          const free = rest.filter(o => !top.includes(o)), ks = [].concat(k);
+          const o = k instanceof RegExp ? free.find(o => k.test(norm(o.text)))
+            : ks.map(k => free.find(o => norm(o.text) === k)).find(Boolean) || free.find(o => norm(o.text).startsWith(ks[0]));
+          if (o) top.push(o);
+        }
+        const others = rest.filter(o => !top.includes(o)).sort((a, b) => disp(a.text).localeCompare(disp(b.text), "fr", { sensitivity: "base" }));
+        return { head, top, others };
+      }
+
+      const DD = { id: null, items: [], active: 0 };
+      function syncPick(id) {
+        const sel = $(id), btn = $(id + "-btn"), o = sel.selectedOptions[0];
+        btn.disabled = sel.disabled;
+        btn.querySelector(".ptxt").textContent = o ? lab(o) : "";
+        btn.classList.toggle("empty", !!o?.disabled);
+      }
+      function ddRender() {
+        const sel = $(DD.id), q = fold($("dd-q").value.trim()), { head, top, others } = orderedOptions(sel);
+        const match = o => !q || fold(disp(o.text)).includes(q) || fold(o.text).includes(q);
+        const item = o => `<li role="option" class="dd-item${o.value === sel.value ? " sel" : ""}" data-v="${html(o.value)}" aria-selected="${o.value === sel.value}">${html(lab(o))}</li>`;
+        const t = top.filter(match), r = others.filter(match), hd = q ? [] : head;
+        DD.items = [...hd, ...t, ...r];
+        $("dd-list").innerHTML = hd.map(item).join("")
+          + (t.length ? `<li class="dd-h" role="presentation">Gares principales</li>${t.map(item).join("")}` : "")
+          + (r.length ? `<li class="dd-h" role="presentation">${q ? "Autres gares" : "Toutes les gares (A → Z)"}</li>${r.map(item).join("")}` : "")
+          || `<li class="dd-empty">${sel.options.length ? "Aucune gare trouvée" : "Chargement des gares…"}</li>`;
+        const cur = sel.selectedOptions[0];
+        $("dd-title").textContent = cur && !cur.disabled ? lab(cur) : "";
+        const nb = [...sel.options].filter(o => !special(o)).length;
+        $("dd-foot").textContent = q ? `${t.length + r.length} gare(s) sur ${nb}` : `${nb} gares`;
+        DD.active = q ? 0 : Math.max(0, DD.items.findIndex(o => o.value === sel.value));
+        ddActive(!q ? "top" : "nearest");
+      }
+      function ddActive(how = "nearest") {
+        const list = $("dd-list"), lis = list.querySelectorAll(".dd-item");
+        lis.forEach((li, i) => li.classList.toggle("act", i === DD.active));
+        const li = lis[DD.active];
+        if (how === "top") { list.scrollTop = 0; if (li && li.offsetTop + li.offsetHeight > list.clientHeight) list.scrollTop = li.offsetTop - list.clientHeight / 2; return; }
+        if (how !== "nearest" || !li) return;
+        /* Défilement limité à la liste (scrollIntoView ferait aussi défiler la page) */
+        const h = list.querySelector(".dd-h")?.offsetHeight || 0;
+        if (li.offsetTop - h < list.scrollTop) list.scrollTop = li.offsetTop - h;
+        else if (li.offsetTop + li.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = li.offsetTop + li.offsetHeight - list.clientHeight;
+      }
+      /* Fenêtre placée comme le calendrier : sous le champ, même largeur ; la liste défile (molette ou barre) */
+      function ddPlace() {
+        const dd = $("dd"), r = $("f-" + DD.id).getBoundingClientRect();
+        dd.style.left = `${r.left}px`; dd.style.top = `${r.bottom + 8}px`; dd.style.width = `${Math.max(r.width, 280)}px`;
+        $("dd-list").style.maxHeight = `${Math.min(340, Math.max(160, innerHeight - r.bottom - 190))}px`;
+      }
+      function ddOpen(id) {
+        const dd = $("dd");
+        if (DD.id) { $(DD.id + "-btn").setAttribute("aria-expanded", "false"); $("f-" + DD.id).classList.remove("open"); }
+        if (!id || $(id).disabled) { dd.hidden = true; DD.id = null; return; }
+        DD.id = id; $("dd-q").value = "";
+        $("dd-q").placeholder = id === "origin" ? "Rechercher une gare de départ…" : "Rechercher une destination…";
+        $("dd-sub").textContent = id === "origin" ? "Gare de départ" : "Destination";
+        dd.hidden = false; ddPlace();
+        $(id + "-btn").setAttribute("aria-expanded", "true"); $("f-" + id).classList.add("open");
+        ddRender(); $("dd-q").focus({ preventScroll: true });
+      }
+      function ddPick(v) {
+        const id = DD.id, sel = $(id); ddOpen(null);
+        DD.pickedAt = Date.now();
+        sel.value = v; syncPick(id); sel.dispatchEvent(new Event("change"));
+        $(id + "-btn").focus({ preventScroll: true });
+      }
+      for (const id of ["origin", "dest"]) {
+        /* Clic n'importe où sur la ligne du champ (icône, intitulé, nom de la gare) : ouvre / ferme la liste */
+        $(id + "-btn").addEventListener("click", e => {
+          e.stopPropagation();
+          /* Juste après un choix, la liste vient de se fermer : un double-clic (ou la touche Entrée) retomberait
+             sur le bouton placé dessous et rouvrirait une liste. On ignore ce clic. */
+          if (Date.now() - (DD.pickedAt || 0) < 500) return;
+          ddOpen(DD.id === id ? null : id);
+        });
+        $(id + "-btn").addEventListener("keydown", e => {
+          if (["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key)) { e.preventDefault(); ddOpen(id); }
+        });
+        $(id).addEventListener("change", () => syncPick(id));
+        /* Options remplacées (chargement, nouvelle recherche) ou champ (dés)activé : on met le bouton à jour */
+        new MutationObserver(() => { syncPick(id); if (DD.id === id) ddRender(); })
+          .observe($(id), { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
+        syncPick(id);
+      }
+      $("dd-q").addEventListener("input", ddRender);
+      $("dd-q").addEventListener("keydown", e => {
+        const n = DD.items.length;
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (n) { DD.active = (DD.active + (e.key === "ArrowDown" ? 1 : n - 1)) % n; ddActive(); } }
+        else if (e.key === "Enter") { e.preventDefault(); if (DD.items[DD.active]) ddPick(DD.items[DD.active].value); }
+        else if (e.key === "Escape" || e.key === "Tab") { const id = DD.id; ddOpen(null); if (e.key === "Escape") { e.preventDefault(); $(id + "-btn").focus(); } }
+      });
+      $("dd").addEventListener("click", e => e.stopPropagation());
+      $("dd-list").addEventListener("click", e => { const li = e.target.closest(".dd-item"); if (li) ddPick(li.dataset.v); });
+      $("dd-list").addEventListener("dblclick", e => e.preventDefault());
+      $("dd-list").addEventListener("mousemove", e => {
+        const li = e.target.closest(".dd-item"); if (!li) return;
+        const i = [...$("dd-list").querySelectorAll(".dd-item")].indexOf(li);
+        if (i !== DD.active) { DD.active = i; ddActive(false); }
+      });
+      document.addEventListener("click", () => DD.id && ddOpen(null));
+      addEventListener("resize", () => DD.id && ddPlace());
+      /* Le panneau de gauche défile : la liste (positionnée sur l'écran) se ferme */
+      addEventListener("scroll", e => DD.id && !$("dd").contains(e.target) && ddOpen(null), true);
+    })();
+  </script>
+</body>
+
+</html>
