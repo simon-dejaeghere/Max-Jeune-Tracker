@@ -126,6 +126,38 @@
       </div>
     </div>
   </div>
+  <!-- Pied de page : avertissement, sources des données et mentions légales -->
+  <footer id="foot">
+    <p class="foot-line">© 2026 Simon De Jaeghere<span class="sep">·</span><a href="https://github.com/simon-dejaeghere/Max-Jeune-Tracker" target="_blank" rel="noopener">Code source sur GitHub</a><span class="sep">·</span>Site indépendant et non officiel, sans lien avec SNCF Voyageurs ni SNCF Connect.</p>
+    <details>
+      <summary>Mentions légales et sources</summary>
+      <div class="legal">
+        <p><b>Nature du site.</b> Outil personnel, gratuit et non commercial. Il n'est ni édité, ni approuvé, ni soutenu par le groupe SNCF.
+          Aucune réservation ni aucun paiement n'a lieu ici : les boutons renvoient vers SNCF Connect ou Trainline.</p>
+        <p><b>Marques.</b> SNCF, SNCF Voyageurs, SNCF Connect, MAX JEUNE, TGV INOUI, OUIGO et Intercités sont des marques
+          déposées de SNCF Voyageurs ou de ses filiales, citées ici à seule fin d'information. Trainline est une marque de Trainline plc.</p>
+        <p><b>Fiabilité.</b> Les places MAX JEUNE affichées proviennent du jeu de données public « tgvmax », mis à jour par SNCF Voyageurs
+          plusieurs fois par jour. Elles peuvent être inexactes ou déjà épuisées : seule la disponibilité affichée sur SNCF Connect au moment
+          de la réservation fait foi. Les conditions de l'abonnement MAX JEUNE sont celles publiées par SNCF Voyageurs.</p>
+        <p><b>Sources des données.</b></p>
+        <ul>
+          <li>Disponibilités MAX JEUNE : SNCF Voyageurs, <a href="https://ressources.data.sncf.com/explore/dataset/tgvmax/" target="_blank" rel="noopener">portail open data SNCF</a>.</li>
+          <li>Liste des gares : SNCF Réseau, <a href="https://ressources.data.sncf.com/" target="_blank" rel="noopener">open data SNCF</a>.</li>
+          <li>Tracés et vitesses des lignes : <a href="https://trainnomade.fr" target="_blank" rel="noopener">Train Nomade</a>, d'après
+            © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">contributeurs OpenStreetMap</a>
+            et les horaires GTFS de SNCF Voyageurs, sous licence <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">ODbL 1.0</a>.</li>
+          <li>Fonds de carte et géocodage : IGN, <a href="https://geoservices.ign.fr/" target="_blank" rel="noopener">Géoplateforme</a>
+            (via Carte facile), sous Licence Ouverte Etalab 2.0.</li>
+          <li>Affichage de la carte : <a href="https://maplibre.org/" target="_blank" rel="noopener">MapLibre GL JS</a> (licence BSD).</li>
+        </ul>
+        <p><b>Données personnelles.</b> Le site ne dépose aucun cookie et ne collecte aucune donnée personnelle. Seuls des identifiants
+          de gares sont gardés en cache dans votre navigateur (stockage local) pour accélérer l'affichage ; vous pouvez les effacer à tout moment
+          depuis les réglages du navigateur.</p>
+        <p><b>Hébergement.</b> GitHub Pages — GitHub, Inc., 88 Colin P. Kelly Jr Street, San Francisco, CA 94107, États-Unis.</p>
+        <p><b>Éditeur et contact.</b> Simon De Jaeghere — <a href="https://github.com/simon-dejaeghere/Max-Jeune-Tracker" target="_blank" rel="noopener">github.com/simon-dejaeghere/Max-Jeune-Tracker</a>.</p>
+      </div>
+    </details>
+  </footer>
 
   <script type="module">
     import * as maplibregl from "maplibre-gl";
@@ -885,7 +917,7 @@
         return el;
       }
     }
-    map.addControl(new MapSelectorPlus({ styles: ["desaturated", "simple", "aerial"], overlays: ["administrativeBoundaries"] }), "bottom-left");
+    map.addControl(new MapSelectorPlus({ styles: ["desaturated", "simple", "aerial"], overlays: ["administrativeBoundaries"] }), "top-right");   // juste sous les boutons de zoom
 
     /* Loupe : recherche d'une gare de départ */
     const fold = t => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
