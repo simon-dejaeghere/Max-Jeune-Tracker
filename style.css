@@ -1163,6 +1163,22 @@ header > select:focus {
     border-left: 2px dotted #8795a5
 }
 
+/* Changement de gare : comment se rendre d'une gare à l'autre (métro, RER…) */
+.txfer {
+    margin: -2px 4px 6px 18px;
+    padding: 5px 8px;
+    border-left: 2px solid var(--line);
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--ink)
+}
+
+.txfer a {
+    color: var(--accent);
+    font-weight: 600;
+    white-space: nowrap
+}
+
 .psec + .tconn {
     margin-top: 0
 }

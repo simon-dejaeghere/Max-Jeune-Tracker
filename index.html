@@ -139,6 +139,10 @@
           <option value="5">5 h</option>
         </select>
       </div>
+      <!-- Changements de gare en transports en commun (métro, RER, navette…) : au départ, à l'arrivée ou entre deux trains,
+           entre gares proches (ex. Paris Nord → Paris Gare de Lyon, Lille Flandres → Lille Europe) -->
+      <div class="chk"><input type="checkbox" id="xfer" checked><label for="xfer">Autoriser les changements de gare
+          (métro, RER…)</label></div>
       <div class="chk"><input type="checkbox" id="full"><label for="full">Afficher aussi les trains
           complets</label></div>
       <button id="go">Afficher les trajets</button>
@@ -301,7 +305,8 @@
     const IS_LINE = ["==", ["geometry-type"], "LineString"], IS_CONN = ["==", ["get", "conn"], true];
     const IS_PT = ["all", ["==", ["geometry-type"], "Point"], ["!=", ["get", "via"], true]];
     const KCOL = ["match", ["get", "kind"], "TGV", "#14837a", "OUIGO", "#c55a86", "IC", "#c08a3e", "ICN", "#5b62b3", "#a9b4bf"];
-    const overnight = x => { const m = h => { const [a, b] = h.split(":"); return +a * 60 + +b; }; const d = m(x.arr) - m(x.dep); return d < 0 && d + 1440 >= 270; };
+    /* Train de nuit : passe minuit ET arrive à partir de 5h du matin (un Intercités du soir arrivant vers 0h30 n'en est pas un) */
+    const overnight = x => { const m = h => { const [a, b] = h.split(":"); return +a * 60 + +b; }; const d = m(x.arr) - m(x.dep); return d < 0 && d + 1440 >= 270 && m(x.arr) >= 300; };
     /* Le jeu de données tgvmax ne contient aujourd'hui aucun OUIGO (filtre et légende retirés). Reconnaissance gardée au cas où il en contiendrait :
        par le nom (entity/axe) ou les numéros de train (76xx à 79xx). */
     const isOuigo = (x, t) => /OUIGO/.test(t) || /^7[6-9]\d\d$/.test(String(x.no || "").trim());
@@ -370,6 +375,12 @@
       const n = nn(name); if (G.cache.has(n)) return G.cache.get(n);
       const all = [...G.nname]; let r = all.filter(([, v]) => v === n);
       if (!r.length) r = all.filter(([, v]) => v.startsWith(n + " "));
+      /* Tous les mots significatifs du nom dans celui de la gare du graphe (au moins deux) : « LE CREUSOT MONTCEAU MONTCHANIN »
+         → « Le Creusot - Montceau-les-Mines - Montchanin TGV », et non « Le Creusot » (gare de ville, simple préfixe) */
+      if (!r.length) {
+        const want = n.split(" ").filter(t => t.length > 1 && !STOP.has(t));
+        if (want.length >= 2) r = all.filter(([, v]) => { const tk = new Set(v.split(" ")); return want.every(t => tk.has(t)); });
+      }
       if (!r.length) { const m = all.filter(([, v]) => n.startsWith(v + " ")), L = Math.max(0, ...m.map(([, v]) => v.length)); r = m.filter(([, v]) => v.length === L); }
       let out = r.map(([k]) => k);
       if (!out.length) {
@@ -500,8 +511,14 @@
     async function fetchAll(params) {
       const r = await fetch(`${EXPORT}?${new URLSearchParams({ ...params, limit: -1 })}`);
       if (!r.ok) throw new Error(`API SNCF : HTTP ${r.status}`);
-      return (await r.json()).map(realNames);
+      return (await r.json()).filter(inScope).map(realNames);
     }
+    /* Gares à l'étranger écartées partout (départs, destinations, correspondances, arrêts intermédiaires), sauf Luxembourg et
+       Fribourg-en-Brisgau. Le code de gare commence par le code du pays (FR…, DE…, CH…). Une ligne n'est gardée que si
+       chacune de ses gares (départ et arrivée, quand elles sont demandées) est en France ou autorisée. */
+    const ABROAD_OK = new Set(["LULUX", "DEFGB"]);
+    const codeOk = c => c == null || String(c).startsWith("FR") || ABROAD_OK.has(c);
+    const inScope = r => codeOk(r[F.originIata]) && codeOk(r[F.destIata]);
     /* Correspondances : tous les trains du jour avec des places MAX JEUNE (≈ 5 000 lignes, ~1 Mo), gardés en mémoire par date */
     const DAYC = new Map();
     const fetchDay = date => {
@@ -682,6 +699,13 @@
     /* Correspondances : nCorr = nombre maximal demandé ; dayOut / dayBack = trains du jour (aller / retour) avec places ;
        hubCodes = codes de la gare fixe ; curG / curGB = trains et itinéraires par gare listée (aller / retour), calculés par render() */
     let dayOut = [], dayBack = [], nCorr = 0, hubCodes = [], curG = new Map(), curGB = null;
+    /* Gares proches (changement de gare au début ou à la fin du trajet, voir nearOf) :
+       HUB_NAMES = gares de la gare fixe ; NEAR_HUB = gares proches de celles-ci ; FAR = gares proches de la destination choisie.
+       Valeurs : nom de gare → { hub : gare de référence, min : temps de changement, code } */
+    let HUB_NAMES = [], NEAR_HUB = new Map(), FAR = new Map();
+    /* Case « Autoriser les changements de gare » (lue à chaque recherche) : sinon, ni gares voisines au départ / à l'arrivée,
+       ni changement de gare entre deux trains (correspondances dans la même gare seulement) */
+    let xferOn = true;
     const hub = () => rev ? dest0 : origin;
     const ends = n => rev ? [n, dest0] : [origin, n];
     let all = [], origin = null, originIata = null, qDate = null, popup = null, routesData = { type: "FeatureCollection", features: [] }, selected = null, routes = [], pathData = { type: "FeatureCollection", features: [] }, pathOf = null;
@@ -690,18 +714,26 @@
     let selVar = null;
     /* Train (ou itinéraire) choisi dans la fiche : selTrain = sa clé, trainVar = sa variante, tracée sur la carte avec ses arrêts */
     let selTrain = null, trainVar = null;
+    /* Train (ou itinéraire) du retour choisi dans la fiche : selBack = sa clé ; backVar = son tracé (même forme qu'une variante, pour le petit train) */
+    let selBack = null, backVar = null;
     const tkey = x => `${x.no}|${x.dep}`;
     const effVar = () => selVar ?? trainVar;
     /* Clé = gares de correspondance + réseau de chaque train (« f » = TGV / OUIGO, qui peuvent emprunter les LGV ;
        « c » = Intercités de jour ou de nuit, tracés sur les lignes classiques). Ainsi un trajet direct desservi à la fois par des TGV
        et par des Intercités (de nuit) a deux tracés distincts, et un train de nuit n'est jamais dessiné sur une LGV. */
-    const vkey = t => `${t.legs ? t.via.join(" › ") : ""}#${(t.legs || [t]).map(l => isIC(l) ? "c" : "f").join("")}`;
+    /* Changement de gare avant le premier train (xs) ou après le dernier (xe) : la gare de départ / d'arrivée réelle fait aussi partie de la clé */
+    const vkey = t => `${t.legs ? t.via.join(" › ") : ""}#${(t.legs || [t]).map(l => isIC(l) ? "c" : "f").join("")}${t.xs || t.xe ? `#${t.xs?.b || ""}#${t.xe?.a || ""}` : ""}`;
     const vbase = k => k.split("#")[0];
     const vsort = (a, b) => !vbase(b) - !vbase(a) || a.localeCompare(b);
-    /* Libellé : « Direct » ou « via X, Y », complété du type de train quand deux variantes passent par les mêmes gares */
+    /* Libellé : « Direct » ou « via X, Y » (et « depuis X » / « arrivée X » s'il faut changer de gare au début ou à la fin),
+       complété du type de train quand deux variantes passent par les mêmes gares */
     const vlabel = (k, keys = []) => {
-      const b = vbase(k), m = k.split("#")[1] || "", lab = b ? `via ${b.split(" › ").map(clean).join(", ")}` : "Direct";
-      if (keys.filter(x => vbase(x) === b).length < 2) return lab;
+      const [b, m = "", xs = "", xe = ""] = k.split("#");
+      let lab = b ? `via ${b.split(" › ").map(clean).join(", ")}` : "Direct";
+      if (xs) lab += ` · depuis ${clean(xs)}`;
+      if (xe) lab += ` · arrivée ${clean(xe)}`;
+      const same = x => { const p = x.split("#"); return p[0] === b && (p[2] || "") === xs && (p[3] || "") === xe; };
+      if (keys.filter(same).length < 2) return lab;
       const net = [...new Set(m.split(""))].length === 1 ? (m[0] === "c" ? "Intercités" : "TGV") : m.split("").map(c => c === "c" ? "Intercités" : "TGV").join(" + ");
       return `${lab} · ${net}`;
     };
@@ -877,7 +909,7 @@
       if (!map.getLayer("lines")) return;
       const sel = selected, is = (a, b) => ["case", ["==", ["get", "name"], sel], a, b];
       if (!sel && pathOf) { pathOf = null; pathData = { type: "FeatureCollection", features: [] }; map.getSource("path")?.setData(pathData); }
-      if (!sel) setStops([]);
+      if (!sel) { setStops([]); if (xferData.features.length || xferReq) showXfers([]); }
       $("speed").style.display = pathOf ? "block" : "none";
       /* Trajet sélectionné : toutes ses variantes, ou seulement celle choisie ; la variante tracée en détail (path) remplace son trait */
       const vOk = effVar() == null ? true : ["==", ["get", "vk"], effVar()];
@@ -886,15 +918,18 @@
       const mine = (a, b = 0) => is(pathOf === sel ? 0 : ["case", vOk, a, 0], b);   // trajet sélectionné (variante affichée) / les autres
       /* Trajet sélectionné : les autres trajets sont masqués (filtre : ils ne sont ni dessinés ni cliquables) */
       const only = f => sel ? ["all", f, ["==", ["get", "name"], sel]] : f;
-      for (const [l, f] of [["lines-glow", IS_LINE], ["lines-casing", ["all", IS_LINE, ["!", IS_CONN]]], ["lines", ["!", IS_CONN]], ["lines-conn", IS_CONN]]) map.setFilter(l, only(f));
-      for (const l of ["lines", "lines-conn"]) {
-        map.setPaintProperty(l, "line-opacity", sel ? mine(1) : .92);
-        map.setPaintProperty(l, "line-width", Z(m => sel ? is(2.8 * m, .9 * m) : (l === "lines" ? 1.6 : 2) * m));
+      for (const [l, f] of [["lines-glow", IS_LINE], ["lines-casing", IS_LINE], ["lines", ["!", IS_CONN]], ["lines-conn-base", IS_CONN], ["lines-conn", IS_CONN]]) if (map.getLayer(l)) map.setFilter(l, only(f));
+      for (const l of ["lines", "lines-conn", "lines-conn-base"]) {
+        if (!map.getLayer(l)) continue;
+        map.setPaintProperty(l, "line-opacity", l === "lines-conn-base" ? (sel ? mine(.3) : .28) : sel ? mine(1) : .92);
+        map.setPaintProperty(l, "line-width", Z(m => sel ? is(2.8 * m, .9 * m) : 1.6 * m));
       }
       map.setPaintProperty("lines-casing", "line-opacity", sel ? mine(.95) : .75);
       map.setPaintProperty("lines-casing", "line-width", Z(m => sel ? is(2.8 * m + 3, 0) : 1.6 * m + 2.4));
-      map.setPaintProperty("lines-glow", "line-opacity", sel ? mine(.28) : 0);
-      map.setPaintProperty("lines-glow", "line-width", Z(m => 9 * m));
+      /* Halo lumineux : léger sur tous les trajets (GLOW), plus marqué sur le trajet sélectionné */
+      map.setPaintProperty("lines-glow", "line-opacity", sel ? mine(.3) : GLOW.op);
+      map.setPaintProperty("lines-glow", "line-width", Z(m => sel ? 9 * m : GLOW.w * m));
+      map.setPaintProperty("lines-glow", "line-blur", Z(m => sel ? 8 * m : GLOW.blur * m));
       /* Gares de correspondance : seulement celles du trajet sélectionné (et de la variante choisie) */
       for (const l of ["via-pts", "via-label"]) if (map.getLayer(l)) map.setFilter(l, ["all", ["==", ["get", "via"], true], ["==", ["get", "name"], sel || ""], vOk]);
       /* Trajet sélectionné : les autres destinations sont masquées (points et étiquettes), seule la sienne reste */
@@ -917,6 +952,8 @@
     /* Animation : un petit train suit le tracé réel de la gare de départ à la destination, en boucle (courte pause à l'arrivée)
        tant que le trajet reste sélectionné */
     let anims = [], shown = false;
+    /* Halo des trajets non sélectionnés : épaisseur et flou (px au zoom 4, ×1,5 au zoom 8, ×2,2 au zoom 12), opacité */
+    const GLOW = { w: 7, blur: 5, op: .16 };
     const LOOP_PAUSE = 700, WAGONS = 3, CAR_PX = 44;   // nombre de wagons, longueur d'une voiture en pixels (à icon-size 1)
     const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
     /* kinds : type de chaque train de l'itinéraire (train choisi dans la fiche) ; sinon le type prévu pour chaque étape du tracé */
@@ -934,7 +971,7 @@
     function tick(now) {
       const src = map.getSource("movers");
       if (src && (anims.length || shown)) {
-        anims = anims.filter(a => a.r.name === selected && routes.includes(a.r) && curVar(a.r) === a.v);   // arrêt dès que le trajet n'est plus sélectionné
+        anims = anims.filter(a => a.r.name === selected && routes.includes(a.r) && (a.v === backVar || curVar(a.r) === a.v));   // arrêt dès que le trajet n'est plus sélectionné
         const feats = [];
         for (const a of anims) {
           const e = now - a.start; if (e < 0) continue;
@@ -1040,10 +1077,22 @@
       const isConn = ["==", ["get", "conn"], true];
       /* Halo diffus (trajet sélectionné), liseré blanc sous les traits pleins, puis le trait ; épaisseurs selon le zoom (voir applyHighlight) */
       map.addLayer({ id: "lines-glow", type: "line", source: "routes", filter: ["==", ["geometry-type"], "LineString"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 12, "line-blur": 8, "line-opacity": 0 } });
-      map.addLayer({ id: "lines-casing", type: "line", source: "routes", filter: ["all", ["==", ["geometry-type"], "LineString"], ["!", isConn]], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": T.casing, "line-width": 4, "line-opacity": .75 } });
+      map.addLayer({ id: "lines-casing", type: "line", source: "routes", filter: ["==", ["geometry-type"], "LineString"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": T.casing, "line-width": 4, "line-opacity": .75 } });
       map.addLayer({ id: "lines", type: "line", source: "routes", filter: ["!", isConn], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 1.6, "line-opacity": .92 } });
-      /* Correspondances : pointillés ronds */
-      map.addLayer({ id: "lines-conn", type: "line", source: "routes", filter: isConn, layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 2, "line-opacity": .92, "line-dasharray": [0.2, 2] } });
+      /* Correspondances : même liseré que les traits pleins, trait de fond très léger (continuité du tracé),
+         puis tirets fins et nets par-dessus (bouts droits : pas d'aspect « perles ») */
+      const CONN_DASH = [2.6, 1.8];
+      map.addLayer({ id: "lines-conn-base", type: "line", source: "routes", filter: isConn, layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 1.6, "line-opacity": .28 } });
+      map.addLayer({ id: "lines-conn", type: "line", source: "routes", filter: isConn, layout: { "line-cap": "butt", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 1.6, "line-opacity": .95, "line-dasharray": CONN_DASH } });
+      /* Animation d'apparition des trajets (voir growRoutes) : source légère à part, mêmes styles que les traits ci-dessus.
+         Seules ces lignes sont recalculées à chaque image ; gares et étiquettes ne bougent pas. */
+      map.addSource("grow", { type: "geojson", data: EMPTY_FC, tolerance: 1, buffer: 16 });
+      const GZ = f => ["interpolate", ["linear"], ["zoom"], 4, f(1), 8, f(1.5), 12, f(2.2)];
+      map.addLayer({ id: "grow-glow", type: "line", source: "grow", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": GZ(m => GLOW.w * m), "line-blur": GZ(m => GLOW.blur * m), "line-opacity": GLOW.op } });
+      map.addLayer({ id: "grow-casing", type: "line", source: "grow", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": T.casing, "line-width": GZ(m => 1.6 * m + 2.4), "line-opacity": .75 } });
+      map.addLayer({ id: "grow", type: "line", source: "grow", filter: ["!", isConn], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": GZ(m => 1.6 * m), "line-opacity": .92 } });
+      map.addLayer({ id: "grow-conn-base", type: "line", source: "grow", filter: isConn, layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": GZ(m => 1.6 * m), "line-opacity": .28 } });
+      map.addLayer({ id: "grow-conn", type: "line", source: "grow", filter: isConn, layout: { "line-cap": "butt", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": GZ(m => 1.6 * m), "line-opacity": .95, "line-dasharray": CONN_DASH } });
       const isPt = IS_PT, isVia = ["==", ["get", "via"], true];
       /* Gares de correspondance : petit point cerclé de sombre, affichées seulement pour le trajet sélectionné (filtre posé par applyHighlight) */
       map.addLayer({ id: "via-pts", type: "circle", source: "routes", filter: isVia, paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3.4, 10, 5], "circle-color": T.paper, "circle-stroke-width": 2, "circle-stroke-color": T.ink } });
@@ -1071,6 +1120,17 @@
       map.addLayer({ id: "path-glow", type: "line", source: "path", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": T.pathGlow, "line-width": pw(10, 14, 20), "line-blur": pw(6, 9, 12), "line-opacity": T.glowOp, "line-translate": [0, 1.5] } }, "via-pts");
       map.addLayer({ id: "path-casing", type: "line", source: "path", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": T.casing, "line-width": pw(6, 8, 11) } }, "via-pts");
       map.addLayer({ id: "path", type: "line", source: "path", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["interpolate", ["linear"], ["get", "v"], 30, "#440154", 100, "#3b528b", 160, "#21908d", 230, "#5dc863", 320, "#fde725"], "line-width": pw(3.4, 4.6, 6.5) } }, "via-pts");
+      /* Changement de gare (voir showXfers) : métro / RER à la couleur de la ligne sur un liseré, liaisons à pied en pointillés gris, nom de la ligne le long du trait */
+      map.addSource("xfer", { type: "geojson", data: xferData });
+      const isWalk = ["==", ["get", "walk"], true], xw = (a, b, c) => ["interpolate", ["linear"], ["zoom"], 8, a, 12, b, 15, c];
+      map.addLayer({ id: "xfer-casing", type: "line", source: "xfer", filter: ["!", isWalk], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": T.casing, "line-width": xw(5, 7, 10) } }, "via-pts");
+      map.addLayer({ id: "xfer", type: "line", source: "xfer", filter: ["!", isWalk], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": xw(3, 4.5, 6.5) } }, "via-pts");
+      map.addLayer({ id: "xfer-walk", type: "line", source: "xfer", filter: isWalk, layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": T.ink, "line-opacity": .7, "line-width": xw(1.6, 2.2, 3), "line-dasharray": [0.1, 1.8] } }, "via-pts");
+      if (font) map.addLayer({
+        id: "xfer-label", type: "symbol", source: "xfer", filter: ["!", isWalk],
+        layout: { "symbol-placement": "line-center", "text-field": ["get", "label"], "text-font": ["literal", bold], "text-size": xw(10, 12, 13), "text-allow-overlap": true },
+        paint: { "text-color": ["get", "color"], "text-halo-color": T.halo, "text-halo-width": 2 }
+      });
       /* Arrêts intermédiaires des trains du trajet tracé : mini ronds blancs, noms en italique */
       map.addSource("stops", { type: "geojson", data: stopsData });
       map.addLayer({
@@ -1238,11 +1298,41 @@
     function group(rows = all, isBack = false) {
       const g = new Map();
       for (const r of rows) {
-        const n = rev !== isBack ? r[F.origin] : r[F.dest]; if (!g.has(n)) g.set(n, []);
-        g.get(n).push(toTrain(r));
+        const t = toTrain(r), n = tagXfer(t, isBack); if (!g.has(n)) g.set(n, []);
+        g.get(n).push(t);
       }
       return g;
     }
+    /* Gares voisines (changement de gare en métro, RER, à pied…, mêmes règles que pour les correspondances : xferFor) */
+    const catalog = () => [...$("origin").options].filter(o => o.value && o.value !== ALL_O && !o.value.includes(",")).map(o => ({ name: o.text, code: o.value }));
+    function nearOf(hubs, exclude = new Set()) {
+      const hp = hubs.map(n => [n, locate(n)]).filter(([, c]) => c), out = new Map();
+      for (const s of catalog()) {
+        if (hubs.includes(s.name) || exclude.has(s.name)) continue;
+        const c = locate(s.name); if (!c) continue;
+        let best = null;
+        for (const [h, q] of hp) { const m = xferFor(kmBetween(q, c), isIdf(h) && isIdf(s.name)); if (m != null && (!best || m < best.min)) best = { hub: h, min: m, code: s.code }; }
+        if (best) out.set(s.name, best);
+      }
+      return out;
+    }
+    /* Train (ou itinéraire) partant / arrivant à une gare voisine plutôt qu'à la gare fixe ou à la destination choisie :
+       on note le changement de gare à faire avant (xs) ou après (xe) ; renvoie la gare sous laquelle le ranger.
+       La gare fixe est le départ du train à l'aller (mode normal) et au retour (mode « toutes les gares de départ »). */
+    function tagXfer(t, isBack) {
+      const hubIsOrigin = rev === isBack;
+      let n = hubIsOrigin ? t.to : t.from;
+      const hx = NEAR_HUB.get(hubIsOrigin ? t.from : t.to);
+      if (hx) { if (hubIsOrigin) t.xs = { a: hx.hub, b: t.from, min: hx.min }; else t.xe = { a: t.to, b: hx.hub, min: hx.min }; }
+      const fx = FAR.get(n);
+      if (fx) { if (hubIsOrigin) t.xe = { a: t.to, b: fx.hub, min: fx.min }; else t.xs = { a: fx.hub, b: t.from, min: fx.min }; n = fx.hub; }
+      return n;
+    }
+    /* Ligne du jeu de données à écarter : depuis une gare voisine de la gare fixe vers cette gare ou une autre voisine (aucun intérêt) */
+    const xferRowOk = (allO, isBack) => r => {
+      const hubIsOrigin = allO === isBack, h = hubIsOrigin ? r[F.origin] : r[F.dest], o = hubIsOrigin ? r[F.dest] : r[F.origin];
+      return !NEAR_HUB.has(h) || !(NEAR_HUB.has(o) || HUB_NAMES.includes(o));
+    };
 
     /* ---------- Correspondances ----------
        Itinéraires de 2 ou 3 trains (1 ou 2 correspondances), chacun avec des places MAX JEUNE, changement dans la même gare
@@ -1253,7 +1343,246 @@
        Seul le dernier train peut arriver le lendemain (train de nuit). */
     const MIN_CORR = 15;
     let maxWait = Infinity;   // attente maximale à une correspondance, en minutes (choisie dans le formulaire)
-    const waitOk = w => w >= MIN_CORR && w <= maxWait;
+    const waitOk = (w, min = MIN_CORR) => w >= min && w <= maxWait;
+    /* Changement de gare dans une même ville (Paris Nord → Paris Gare de Lyon, Lille Flandres → Lille Europe, Tours → Saint-Pierre-des-Corps…) :
+       permis seulement entre gares à moins de XFER_KM à vol d'oiseau, donc pas vers une gare TGV excentrée
+       (Aix-en-Provence TGV, Besançon TGV, Lyon Saint-Exupéry…). Temps minimal entre les deux trains : à pied jusqu'à 1 km,
+       au-delà métro / tram / navette, marge comprise. */
+    const XFER_KM = 6;
+    const xferMin = km => km <= 1 ? MIN_CORR + Math.round(12 * km) : 25 + Math.round(5 * km);   // ex. Lille Flandres → Europe 20 min, Paris Nord → Gare de Lyon 47 min
+    const kmBetween = (p, q) => Math.hypot((p[0] - q[0]) * Math.cos((p[1] + q[1]) * Math.PI / 360), p[1] - q[1]) * 111.2;
+    /* Île-de-France : toutes les gares parisiennes et celles de la banlieue desservies par les TGV (Marne-la-Vallée, Massy,
+       aéroport CDG, Versailles) sont reliées entre elles (RER, Transilien), quelle que soit la distance ; au-delà de XFER_KM,
+       temps de changement plus long (ex. Paris → CDG ~75 min, Massy → CDG ~95 min, marge comprise). */
+    const IDF = /^(PARIS|MARNE LA VALLEE|MASSY|VERSAILLES)\b|\bCDG\b|\bROISSY\b|CHARLES DE GAULLE/;
+    const isIdf = name => IDF.test(nn(name || ""));
+    const xferFor = (km, idf) => km <= XFER_KM ? xferMin(km) : idf ? 40 + Math.round(1.5 * km) : null;
+    /* Temps de changement entre deux gares (par leur nom), null si trop éloignées ou non localisées */
+    const xferBetween = (a, b) => { const p = locate(a), q = locate(b); return p && q ? xferFor(kmBetween(p, q), isIdf(a) && isIdf(b)) : null; };
+    /* Comment changer de gare : trajets conseillés entre les gares les plus courantes (sinon, seul le lien d'itinéraire est proposé) */
+    const XID = [[/^PARIS NORD/, "PN"], [/^PARIS EST/, "PE"], [/^PARIS (GARE DE )?LYON/, "PL"], [/^PARIS BERCY/, "PB"], [/^PARIS AUSTERLITZ/, "PA"],
+    [/^PARIS MONTPARNASSE VAUGIRARD/, "PMV"], [/^PARIS MONTPARNASSE/, "PM"], [/^PARIS ST LAZARE/, "PSL"], [/\bCDG\b|\bROISSY\b|CHARLES DE GAULLE/, "CDG"],
+    [/^MARNE LA VALLEE/, "MLV"], [/^MASSY/, "MAS"], [/^VERSAILLES/, "VER"], [/^LILLE FLANDRES/, "LFL"], [/^LILLE EUROPE/, "LEU"],
+    [/^LYON PART DIEU/, "LPD"], [/^LYON PERRACHE/, "LPE"], [/^AVIGNON TGV/, "AVT"], [/^AVIGNON CENTRE/, "AVC"], [/^TOURS$/, "TRS"],
+    [/^ST PIERRE DES CORPS/, "SPC"], [/^MARSEILLE ST CHARLES/, "MSC"], [/^MARSEILLE BLANCARDE/, "MBL"]];
+    const XHOW = {
+      "PN|PE": "À pied, ~10 min.",
+      "PN|PL": "RER D direct jusqu'à Gare de Lyon, ~10 min.",
+      "PN|PB": "RER D jusqu'à Gare de Lyon, puis métro 14 (1 station) ou 10 min à pied.",
+      "PN|PA": "Métro 5 direct jusqu'à Gare d'Austerlitz, ~25 min.",
+      "PN|PM": "Métro 4 direct jusqu'à Montparnasse-Bienvenüe, ~25 min.",
+      "PN|PMV": "Métro 4 direct jusqu'à Montparnasse-Bienvenüe (~25 min), puis hall 3 Vaugirard (~10 min à pied).",
+      "PN|PSL": "RER E de Magenta (relié à Gare du Nord) à Haussmann–Saint-Lazare, ~10 min.",
+      "PE|PL": "Métro 5 jusqu'à Bastille, puis métro 1 jusqu'à Gare de Lyon, ~20 min.",
+      "PE|PB": "Métro 5 jusqu'à Bastille, métro 1 jusqu'à Gare de Lyon, puis métro 14 (1 station), ~25 min.",
+      "PE|PA": "Métro 5 direct jusqu'à Gare d'Austerlitz, ~20 min.",
+      "PE|PM": "Métro 4 direct jusqu'à Montparnasse-Bienvenüe, ~25 min.",
+      "PE|PMV": "Métro 4 direct jusqu'à Montparnasse-Bienvenüe (~25 min), puis hall 3 Vaugirard (~10 min à pied).",
+      "PE|PSL": "À pied jusqu'à Magenta (~5 min), puis RER E jusqu'à Haussmann–Saint-Lazare.",
+      "PL|PB": "Métro 14 (1 station) ou ~10 min à pied.",
+      "PL|PA": "À pied par le pont Charles-de-Gaulle, ~10 min.",
+      "PL|PM": "Métro 14 jusqu'à Châtelet, puis métro 4 jusqu'à Montparnasse-Bienvenüe (~25 min), ou bus 91 direct.",
+      "PL|PMV": "Métro 14 jusqu'à Châtelet, métro 4 jusqu'à Montparnasse-Bienvenüe, puis hall 3 Vaugirard (~10 min à pied).",
+      "PL|PSL": "Métro 14 direct jusqu'à Saint-Lazare, ~10 min.",
+      "PB|PA": "Métro 14 jusqu'à Gare de Lyon (1 station), puis 10 min à pied par le pont Charles-de-Gaulle.",
+      "PB|PM": "Métro 6 direct jusqu'à Montparnasse-Bienvenüe, ~25 min.",
+      "PB|PMV": "Métro 6 direct jusqu'à Montparnasse-Bienvenüe (~25 min), puis hall 3 Vaugirard (~10 min à pied).",
+      "PB|PSL": "Métro 14 direct jusqu'à Saint-Lazare, ~12 min.",
+      "PA|PM": "Métro 5 jusqu'à Place d'Italie, puis métro 6 jusqu'à Montparnasse-Bienvenüe (~25 min), ou bus 91 direct.",
+      "PA|PMV": "Métro 5 jusqu'à Place d'Italie, métro 6 jusqu'à Montparnasse-Bienvenüe, puis hall 3 Vaugirard (~10 min à pied).",
+      "PA|PSL": "À pied jusqu'à Gare de Lyon par le pont Charles-de-Gaulle (~10 min), puis métro 14 direct.",
+      "PM|PMV": "Même gare : le hall 3 (Vaugirard) est à ~10 min à pied des halls 1 et 2.",
+      "PM|PSL": "Métro 13 direct jusqu'à Saint-Lazare, ~15 min.",
+      "PMV|PSL": "Hall 3 → Montparnasse-Bienvenüe (~10 min à pied), puis métro 13 direct jusqu'à Saint-Lazare.",
+      "CDG|PN": "RER B direct jusqu'à Gare du Nord, ~35 min.",
+      "CDG|PE": "RER B jusqu'à Gare du Nord, puis 10 min à pied.",
+      "CDG|PL": "RER B jusqu'à Châtelet–Les Halles, puis RER A ou D jusqu'à Gare de Lyon, ~45 min.",
+      "CDG|PB": "RER B jusqu'à Châtelet–Les Halles, puis métro 14 jusqu'à Bercy, ~50 min.",
+      "CDG|PA": "RER B jusqu'à Gare du Nord, puis métro 5 direct, ~1 h.",
+      "CDG|PM": "RER B jusqu'à Denfert-Rochereau, puis métro 4 ou 6 jusqu'à Montparnasse-Bienvenüe, ~1 h.",
+      "CDG|PSL": "RER B jusqu'à Gare du Nord, puis RER E depuis Magenta, ~50 min.",
+      "CDG|MLV": "RER B jusqu'à Châtelet–Les Halles, puis RER A direction Marne-la-Vallée, ~1h15.",
+      "CDG|MAS": "RER B direct direction Saint-Rémy-lès-Chevreuse (arrêt Massy-Palaiseau, à 5 min à pied de Massy TGV), ~1h10.",
+      "MLV|PL": "RER A direct jusqu'à Gare de Lyon, ~35 min.",
+      "MLV|PB": "RER A jusqu'à Gare de Lyon, puis métro 14 (1 station) ou 10 min à pied.",
+      "MLV|PA": "RER A jusqu'à Gare de Lyon, puis 10 min à pied par le pont Charles-de-Gaulle.",
+      "MLV|PN": "RER A jusqu'à Châtelet–Les Halles, puis RER B ou D jusqu'à Gare du Nord, ~45 min.",
+      "MLV|PE": "RER A jusqu'à Châtelet–Les Halles, RER B ou D jusqu'à Gare du Nord, puis 10 min à pied.",
+      "MLV|PM": "RER A jusqu'à Châtelet–Les Halles, puis métro 4 jusqu'à Montparnasse-Bienvenüe, ~1 h.",
+      "MLV|PSL": "RER A jusqu'à Auber, puis couloir à pied vers Saint-Lazare (~5 min).",
+      "MLV|MAS": "RER A jusqu'à Châtelet–Les Halles, puis RER B direction Saint-Rémy-lès-Chevreuse (arrêt Massy-Palaiseau), ~1h15.",
+      "MAS|PN": "RER B direct depuis Massy-Palaiseau (5 min à pied de Massy TGV) jusqu'à Gare du Nord, ~45 min.",
+      "MAS|PE": "RER B depuis Massy-Palaiseau jusqu'à Gare du Nord, puis 10 min à pied.",
+      "MAS|PL": "RER B depuis Massy-Palaiseau jusqu'à Châtelet–Les Halles, puis RER A ou D jusqu'à Gare de Lyon.",
+      "MAS|PB": "RER B depuis Massy-Palaiseau jusqu'à Châtelet–Les Halles, puis métro 14 jusqu'à Bercy.",
+      "MAS|PA": "RER C direct depuis Massy-Palaiseau jusqu'à Paris Austerlitz, ~35 min.",
+      "MAS|PM": "RER B depuis Massy-Palaiseau jusqu'à Denfert-Rochereau, puis métro 4 ou 6 jusqu'à Montparnasse-Bienvenüe.",
+      "MAS|PSL": "RER B depuis Massy-Palaiseau jusqu'à Châtelet–Les Halles, puis métro 14 jusqu'à Saint-Lazare.",
+      "MAS|MAS": "Massy TGV et Massy-Palaiseau sont voisines : ~5 min à pied.",
+      "VER|PM": "Transilien N direct jusqu'à Paris Montparnasse, ~15 min.",
+      "VER|MAS": "Ligne V directe de Versailles-Chantiers à Massy-Palaiseau (5 min à pied de Massy TGV), ~25 min.",
+      "LFL|LEU": "À pied, ~10 min (ou métro 2, 1 station).",
+      "LPD|LPE": "Tram T1 direct, ~20 min.",
+      "AVT|AVC": "TER navette direct (« virgule »), ~5 min.",
+      "TRS|SPC": "Navette TER directe, ~5 min.",
+      "MBL|MSC": "TER direct (~5 min) ou métro 1."
+    };
+    const xid = n => XID.find(([re]) => re.test(nn(n || "")))?.[1];
+    function xferHow(a, b) {
+      const x = xid(a), y = xid(b); if (!x || !y) return null;
+      const get = (p, q) => XHOW[`${p}|${q}`] || XHOW[`${q}|${p}`];
+      let h = get(x, y);
+      /* Versailles ↔ autre gare parisienne : Transilien N jusqu'à Montparnasse, puis le trajet depuis Montparnasse */
+      if (!h && (x === "VER" || y === "VER")) { const o = x === "VER" ? y : x, m = o !== "PM" && get("PM", o); if (m) h = `Transilien N jusqu'à Paris Montparnasse (~15 min), puis ${m[0].toLowerCase()}${m.slice(1)}`; }
+      return h || null;
+    }
+    /* Lien d'itinéraire en transports en commun entre deux gares (Google Maps) */
+    const xferLink = (a, b) => `https://www.google.com/maps/dir/?api=1&travelmode=transit&origin=${encodeURIComponent(`Gare ${clean(a)}`)}&destination=${encodeURIComponent(`Gare ${clean(b)}`)}`;
+    /* ---------- Changement de gare sur la carte (Île-de-France) ----------
+       Trajet en métro / RER / Transilien tracé sur les vraies lignes, aux couleurs officielles (données ouvertes Île-de-France Mobilités :
+       tracés du réseau ferré et emplacement des gares, chargés à la demande ligne par ligne). Étapes : [ligne, station de départ, station d'arrivée],
+       dans le sens de la clé ; les liaisons à pied (gare SNCF ↔ station, entre deux stations) sont ajoutées automatiquement. */
+    const CDG2 = "Aéroport Charles De Gaulle 2-TGV", MLVC = "Marne-la-Vallée-Chessy", MASP = "Massy-Palaiseau", CHLH = "Châtelet-Les Halles", MB = "Montparnasse-Bienvenüe";
+    const XPATH = {
+      "PN|PE": [], "PL|PA": [], "PM|PMV": [], "MAS|MAS": [],
+      "PN|PL": [["RER D", "Gare du Nord", "Gare de Lyon"]],
+      "PN|PB": [["RER D", "Gare du Nord", "Gare de Lyon"], ["METRO 14", "Gare de Lyon", "Bercy"]],
+      "PN|PA": [["METRO 5", "Gare du Nord", "Gare d'Austerlitz"]],
+      "PN|PM": [["METRO 4", "Gare du Nord", MB]], "PN|PMV": [["METRO 4", "Gare du Nord", MB]],
+      "PN|PSL": [["RER E", "Magenta", "Haussmann-Saint-Lazare"]],
+      "PE|PL": [["METRO 5", "Gare de l'Est", "Bastille"], ["METRO 1", "Bastille", "Gare de Lyon"]],
+      "PE|PB": [["METRO 5", "Gare de l'Est", "Bastille"], ["METRO 1", "Bastille", "Gare de Lyon"], ["METRO 14", "Gare de Lyon", "Bercy"]],
+      "PE|PA": [["METRO 5", "Gare de l'Est", "Gare d'Austerlitz"]],
+      "PE|PM": [["METRO 4", "Gare de l'Est", MB]], "PE|PMV": [["METRO 4", "Gare de l'Est", MB]],
+      "PE|PSL": [["RER E", "Magenta", "Haussmann-Saint-Lazare"]],
+      "PL|PB": [["METRO 14", "Gare de Lyon", "Bercy"]],
+      "PL|PM": [["METRO 14", "Gare de Lyon", "Châtelet"], ["METRO 4", "Châtelet", MB]], "PL|PMV": [["METRO 14", "Gare de Lyon", "Châtelet"], ["METRO 4", "Châtelet", MB]],
+      "PL|PSL": [["METRO 14", "Gare de Lyon", "Saint-Lazare"]],
+      "PB|PA": [["METRO 14", "Bercy", "Gare de Lyon"]],
+      "PB|PM": [["METRO 6", "Bercy", MB]], "PB|PMV": [["METRO 6", "Bercy", MB]],
+      "PB|PSL": [["METRO 14", "Bercy", "Saint-Lazare"]],
+      "PA|PM": [["METRO 5", "Gare d'Austerlitz", "Place d'Italie"], ["METRO 6", "Place d'Italie", MB]], "PA|PMV": [["METRO 5", "Gare d'Austerlitz", "Place d'Italie"], ["METRO 6", "Place d'Italie", MB]],
+      "PA|PSL": [["METRO 14", "Gare de Lyon", "Saint-Lazare"]],
+      "PM|PSL": [["METRO 13", MB, "Saint-Lazare"]], "PMV|PSL": [["METRO 13", MB, "Saint-Lazare"]],
+      "CDG|PN": [["RER B", CDG2, "Gare du Nord"]], "CDG|PE": [["RER B", CDG2, "Gare du Nord"]],
+      "CDG|PL": [["RER B", CDG2, CHLH], ["RER A", CHLH, "Gare de Lyon"]],
+      "CDG|PB": [["RER B", CDG2, CHLH], ["METRO 14", "Châtelet", "Bercy"]],
+      "CDG|PA": [["RER B", CDG2, "Gare du Nord"], ["METRO 5", "Gare du Nord", "Gare d'Austerlitz"]],
+      "CDG|PM": [["RER B", CDG2, "Denfert-Rochereau"], ["METRO 4", "Denfert-Rochereau", MB]],
+      "CDG|PSL": [["RER B", CDG2, "Gare du Nord"], ["RER E", "Magenta", "Haussmann-Saint-Lazare"]],
+      "CDG|MLV": [["RER B", CDG2, CHLH], ["RER A", CHLH, MLVC]],
+      "CDG|MAS": [["RER B", CDG2, MASP]],
+      "MLV|PL": [["RER A", MLVC, "Gare de Lyon"]], "MLV|PA": [["RER A", MLVC, "Gare de Lyon"]],
+      "MLV|PB": [["RER A", MLVC, "Gare de Lyon"], ["METRO 14", "Gare de Lyon", "Bercy"]],
+      "MLV|PN": [["RER A", MLVC, CHLH], ["RER B", CHLH, "Gare du Nord"]], "MLV|PE": [["RER A", MLVC, CHLH], ["RER B", CHLH, "Gare du Nord"]],
+      "MLV|PM": [["RER A", MLVC, CHLH], ["METRO 4", "Châtelet", MB]],
+      "MLV|PSL": [["RER A", MLVC, "Auber"]],
+      "MLV|MAS": [["RER A", MLVC, CHLH], ["RER B", CHLH, MASP]],
+      "MAS|PN": [["RER B", MASP, "Gare du Nord"]], "MAS|PE": [["RER B", MASP, "Gare du Nord"]],
+      "MAS|PL": [["RER B", MASP, CHLH], ["RER A", CHLH, "Gare de Lyon"]],
+      "MAS|PB": [["RER B", MASP, CHLH], ["METRO 14", "Châtelet", "Bercy"]],
+      "MAS|PA": [["RER C", MASP, "Paris Austerlitz"]],
+      "MAS|PM": [["RER B", MASP, "Denfert-Rochereau"], ["METRO 4", "Denfert-Rochereau", MB]],
+      "MAS|PSL": [["RER B", MASP, CHLH], ["METRO 14", "Châtelet", "Saint-Lazare"]],
+      "VER|PM": [["TRAIN N", "Versailles-Chantiers", "Montparnasse"]],
+      "VER|MAS": [["TRAIN V", "Versailles-Chantiers", MASP]]
+    };
+    /* Étapes de x vers y (codes XID), dans le bon sens ; Versailles ↔ Paris : ligne N jusqu'à Montparnasse puis la suite */
+    function xferSteps(x, y) {
+      if (!x || !y) return null;
+      const rev = s => s && [...s].reverse().map(([l, a, b]) => [l, b, a]);
+      const get = (p, q) => XPATH[`${p}|${q}`] || rev(XPATH[`${q}|${p}`]) || null;
+      let s = get(x, y);
+      if (!s && x === "VER" && y !== "PM") { const m = get("PM", y); if (m) s = [...get("VER", "PM"), ...m]; }
+      if (!s && y === "VER" && x !== "PM") { const m = get(x, "PM"); if (m) s = [...m, ...get("PM", "VER")]; }
+      return s;
+    }
+    const IDFM = "https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/";
+    const IDFM_LINES = new Map();   // ligne → Promise<{ V: sommets, adj, color, st: nom normalisé → [lon, lat] }>
+    function idfmLine(line) {
+      if (!IDFM_LINES.has(line)) IDFM_LINES.set(line, (async () => {
+        const w = encodeURIComponent(`res_com="${line}"`), get = u => fetch(u).then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)));
+        const [tr, gs] = await Promise.all([get(`${IDFM}traces-du-reseau-ferre-idf/exports/geojson?select=colourweb_hexa,geo_shape&where=${w}`),
+        get(`${IDFM}emplacement-des-gares-idf/exports/json?select=nom_gares,geo_point_2d&where=${w}`)]);
+        /* Graphe de la ligne : chaque sommet des tracés, reliés le long des tronçons ; les bouts de tronçons sont raccordés aux sommets à moins de 30 m */
+        const V = [], adj = [], ends = [], link = (a, b) => { const d = kmBetween(V[a], V[b]); adj[a].push([b, d]); adj[b].push([a, d]); };
+        let color = null;
+        for (const f of tr.features || []) {
+          color ||= f.properties?.colourweb_hexa;
+          const g = f.geometry; if (!g) continue;
+          for (const s of g.type === "MultiLineString" ? g.coordinates : g.type === "LineString" ? [g.coordinates] : []) {
+            const b = V.length; s.forEach(c => { V.push(c); adj.push([]); });
+            for (let i = 1; i < s.length; i++) link(b + i - 1, b + i);
+            ends.push(b, b + s.length - 1);
+          }
+        }
+        const cell = (x, y) => `${x},${y}`, C = .001, grid = new Map();
+        V.forEach((c, i) => { const k = cell(Math.floor(c[0] / C), Math.floor(c[1] / C)); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(i); });
+        for (const e of ends) {
+          const cx = Math.floor(V[e][0] / C), cy = Math.floor(V[e][1] / C);
+          for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (const j of grid.get(cell(cx + dx, cy + dy)) || []) if (j !== e && kmBetween(V[e], V[j]) < .03) link(e, j);
+        }
+        const st = new Map(gs.map(s => [nn(s.nom_gares || ""), [s.geo_point_2d.lon, s.geo_point_2d.lat]]));
+        return { V, adj, color: color ? `#${color}` : "#6b7a8a", st };
+      })().catch(e => { IDFM_LINES.delete(line); throw e; }));
+      return IDFM_LINES.get(line);
+    }
+    /* Tracé de la ligne entre deux de ses stations (plus court chemin sur le graphe de la ligne) */
+    function rideCoords(g, a, b) {
+      const pa = g.st.get(nn(a)), pb = g.st.get(nn(b)); if (!pa || !pb || !g.V.length) return null;
+      const near = p => { let bi = 0, bd = Infinity; g.V.forEach((c, i) => { const d = kmBetween(c, p); if (d < bd) { bd = d; bi = i; } }); return bi; };
+      const s = near(pa), t = near(pb), dist = new Map([[s, 0]]), prev = new Map(), h = new Heap(); h.push([0, s]);
+      while (h.size) {
+        const [d, u] = h.pop(); if (d > dist.get(u)) continue; if (u === t) break;
+        for (const [v, w] of g.adj[u]) if (d + w < (dist.get(v) ?? Infinity)) { dist.set(v, d + w); prev.set(v, u); h.push([d + w, v]); }
+      }
+      if (!dist.has(t)) return null;
+      const out = [pb]; for (let x = t; x !== undefined; x = prev.get(x)) out.push(g.V[x]); out.push(pa);
+      return out.reverse();
+    }
+    const lineLabel = l => l.replace(/^METRO /, "M").replace(/^TRAIN /, "Ligne ").replace(/^TRAM /, "T");
+    /* Traits du changement de gare a → b : trajets en transports (couleur de la ligne) et liaisons à pied (pointillés gris).
+       Sans trajet connu (hors Île-de-France, ou données indisponibles) : simple liaison en pointillés entre les deux gares. */
+    async function transferFeats(a, b) {
+      const pA = locate(a), pB = locate(b), feats = [];
+      const walk = (p, q, min = .08) => { if (p && q && kmBetween(p, q) > min) feats.push({ type: "Feature", properties: { walk: true }, geometry: { type: "LineString", coordinates: [p, q] } }); };
+      const steps = xferSteps(xid(a), xid(b));
+      try {
+        if (!steps) throw 0;
+        let cur = pA;
+        for (const [line, s, e] of steps) {
+          const g = await idfmLine(line), c = rideCoords(g, s, e); if (!c) throw 0;
+          walk(cur, c[0]); feats.push({ type: "Feature", properties: { color: g.color, label: lineLabel(line) }, geometry: { type: "LineString", coordinates: c } });
+          cur = c[c.length - 1];
+        }
+        walk(cur, pB);
+        return feats;
+      } catch { feats.length = 0; walk(pA, pB, 0); return feats; }
+    }
+    let xferData = EMPTY_FC, xferReq = 0;
+    const setXfer = fc => { xferData = fc; map.getSource("xfer")?.setData(fc); };
+    /* pairs : [[gare d'arrivée du train précédent, gare de départ du suivant], …] (seulement les changements de gare) */
+    async function showXfers(pairs) {
+      const id = ++xferReq; setXfer(EMPTY_FC);
+      if (!pairs.length) return;
+      const feats = (await Promise.all(pairs.map(([a, b]) => transferFeats(a, b)))).flat();
+      if (id === xferReq) setXfer({ type: "FeatureCollection", features: feats });
+    }
+    /* code de gare → [{ k: code d'une gare proche, min: temps de changement }], calculé une fois par liste de trains */
+    const NEAR = new WeakMap();
+    function nearStations(day) {
+      if (!xferOn) return new Map();
+      if (NEAR.has(day)) return NEAR.get(day);
+      const pos = new Map();
+      for (const t of day) for (const [k, n] of [[t.oIata, t.from], [t.dIata, t.to]]) if (k && !pos.has(k)) { const c = locate(n); pos.set(k, c && { c, idf: isIdf(n) }); }
+      const ks = [...pos].filter(([, v]) => v), near = new Map();
+      for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++) {
+        const [a, p] = ks[i], [b, q] = ks[j], min = xferFor(kmBetween(p.c, q.c), p.idf && q.idf); if (min == null) continue;
+        if (!near.has(a)) near.set(a, []); if (!near.has(b)) near.set(b, []);
+        near.get(a).push({ k: b, min }); near.get(b).push({ k: a, min });
+      }
+      NEAR.set(day, near); return near;
+    }
     const night = t => mins(t.arr) < mins(t.dep);
     const absArr = t => mins(t.arr) + (night(t) ? 1440 : 0);
     const itin = legs => {
@@ -1275,6 +1604,8 @@
         fronts.set(s, [...f.filter(b => !beats(L, b)), L]);
       };
       const mk = legs => ({ legs, dep: mins(legs[0].dep), arr: absArr(legs[legs.length - 1]) });
+      /* Gares où l'on peut prendre le train suivant depuis la gare k : elle-même, ou une gare proche (temps de changement en plus) */
+      const near = nearStations(day), from = k => [[k, MIN_CORR], ...(near.get(k) || []).map(o => [o.k, o.min])];
       let layer = [];
       for (const s of S) for (const t of idx.get(s) || []) if (!S.has(fwd ? t.dIata : t.oIata)) { const L = mk([t]); add(L); layer.push(L); }
       for (let c = 1; c <= maxC; c++) {
@@ -1283,12 +1614,18 @@
           const seen = new Set([...L.legs.map(l => l.oIata), ...L.legs.map(l => l.dIata)]);
           if (fwd) {
             const last = L.legs[L.legs.length - 1]; if (night(last)) continue;
-            for (const t of idx.get(last.dIata) || [])
-              if (t.no !== last.no && waitOk(mins(t.dep) - mins(last.arr)) && !seen.has(t.dIata) && !S.has(t.dIata)) { const N = mk([...L.legs, t]); add(N); next.push(N); }
+            for (const [x, need] of from(last.dIata)) {
+              if (x !== last.dIata && (seen.has(x) || S.has(x))) continue;
+              for (const t of idx.get(x) || [])
+                if (t.no !== last.no && waitOk(mins(t.dep) - mins(last.arr), need) && !seen.has(t.dIata) && !S.has(t.dIata)) { const N = mk([...L.legs, t]); add(N); next.push(N); }
+            }
           } else {
             const first = L.legs[0];
-            for (const t of idx.get(first.oIata) || [])
-              if (t.no !== first.no && !night(t) && waitOk(mins(first.dep) - mins(t.arr)) && !seen.has(t.oIata) && !S.has(t.oIata)) { const N = mk([t, ...L.legs]); add(N); next.push(N); }
+            for (const [x, need] of from(first.oIata)) {
+              if (x !== first.oIata && (seen.has(x) || S.has(x))) continue;
+              for (const t of idx.get(x) || [])
+                if (t.no !== first.no && !night(t) && waitOk(mins(first.dep) - mins(t.arr), need) && !seen.has(t.oIata) && !S.has(t.oIata)) { const N = mk([t, ...L.legs]); add(N); next.push(N); }
+            }
           }
         }
         layer = next;
@@ -1307,7 +1644,10 @@
     function withConn(g, isBack, ks) {
       if (!nCorr) return g;
       const day = isBack ? dayBack : dayOut, m = new Map([...g].map(([n, l]) => [n, [...l]]));
-      for (const [n, its] of connections(day, hubCodes, rev === isBack, nCorr, ks)) { if (!m.has(n)) m.set(n, []); m.get(n).push(...its); }
+      for (const its of connections(day, hubCodes, rev === isBack, nCorr, ks).values()) for (const it of its) {
+        const n = tagXfer(it, isBack);   // départ / arrivée à une gare voisine : changement de gare noté, rangé sous la gare de référence
+        if (!m.has(n)) m.set(n, []); m.get(n).push(it);
+      }
       return m;
     }
     const durMin = x => absArr(x) - mins(x.dep);
@@ -1315,15 +1655,25 @@
     const isIC = t => t.kind === "IC" || t.kind === "ICN";
     function stepsOf(name, pool) {
       const direct = pool.filter(t => !t.legs);
-      if (direct.length || !pool.length) return [[...ends(name), direct.every(isIC), bestKind(direct)]];
+      if (direct.length || !pool.length) {
+        /* Départ / arrivée à une gare voisine (changement de gare avant ou après) : le tracé part de / arrive à la gare réelle du train */
+        const [A, B] = ends(name), d = direct[0];
+        return [[d?.xs ? d.from : A, d?.xe ? d.to : B, direct.every(isIC), bestKind(direct)]];
+      }
       const b = pool.reduce((a, t) => durMin(t) < durMin(a) ? t : a);
       return b.legs.map(l => [l.from, l.to, isIC(l), l.kind]);
     }
-    function stepsRoute(steps) {
+    /* Tronçons du graphe pour chaque étape (un tableau par train), null si une étape est introuvable */
+    function stepsParts(steps) {
       if (!G.ready) return null;
-      const segs = [];
-      for (const [A, B, c] of steps) { const s = gRoute(A, B, c); if (!s?.length) return null; segs.push(...s); }
-      return segs;
+      const parts = steps.map(([A, B, c]) => gRoute(A, B, c));
+      return parts.every(p => p?.length) ? parts : null;
+    }
+    /* Trait(s) d'une variante : un seul pour un trajet direct ; avec correspondance(s), un par train, chacun à la couleur
+       de son train (kinds[i]) — ex. TGV puis Intercités : vert puis orange */
+    function lineFeats(props, parts, kinds) {
+      if (parts.length < 2 || !props.ok) return [{ type: "Feature", properties: props, geometry: { type: "LineString", coordinates: pathGeo(parts.flat()).coords } }];
+      return parts.map((p, i) => ({ type: "Feature", properties: { ...props, kind: kinds[i] || props.kind, leg: i }, geometry: { type: "LineString", coordinates: pathGeo(p).coords } }));
     }
 
     /* Gare de départ : marqueur dédié (élément HTML, conservé lors des changements de fond de plan) */
@@ -1338,11 +1688,25 @@
 
     /* Apparition des trajets : chaque ligne se dessine de la gare de départ vers la gare d'arrivée (coordonnées déjà dans ce sens),
        toutes au même rythme relatif, en ~1,6 s. Les gares (points) sont affichées d'emblée. */
-    let growId = 0;
+    let growId = 0, growing = false;
     function growRoutes(fc) {
-      const id = ++growId, src = () => map.getSource("routes");
-      if (matchMedia("(prefers-reduced-motion: reduce)").matches) { src()?.setData(fc); return; }
-      const lines = fc.features.map(f => f.geometry.type === "LineString" ? cumul(f.geometry.coordinates) : null);
+      const id = ++growId, src = () => map.getSource("routes"), gsrc = () => map.getSource("grow");
+      gsrc()?.setData(EMPTY_FC); growing = false;
+      const lf = fc.features.filter(f => f.geometry.type === "LineString");
+      if (REDUCE || !lf.length || !gsrc()) { src()?.setData(fc); return; }
+      growing = true;
+      /* Pendant l'animation : la source « routes » ne reçoit qu'une fois les gares (points, étiquettes), sans les lignes ;
+         les lignes se dessinent dans la source « grow », avec des tracés allégés (un point au plus tous les STEP km,
+         ~6000 points en tout) pour que le recalcul de chaque image reste rapide même avec beaucoup de trajets. */
+      src()?.setData({ type: "FeatureCollection", features: fc.features.filter(f => f.geometry.type !== "LineString") });
+      const all = lf.map(f => ({ f, c: f.geometry.coordinates, cum: cumul(f.geometry.coordinates) }));
+      const STEP = Math.max(.5, all.reduce((s, l) => s + l.cum[l.cum.length - 1], 0) / 6000);
+      const lines = all.map(({ f, c, cum }) => {
+        const keep = [0]; for (let i = 1; i < c.length - 1; i++) if (cum[i] - cum[keep[keep.length - 1]] >= STEP) keep.push(i);
+        if (c.length > 1) keep.push(c.length - 1);
+        const coords = keep.map(i => c[i]);
+        return { f, coords, cum: cumul(coords) };
+      });
       const cut = (coords, cum, p) => {
         const d = cum[cum.length - 1] * p; let i = 1;
         while (i < cum.length && cum[i] < d) i++;
@@ -1352,17 +1716,58 @@
       };
       const t0 = performance.now(), DUR = 1600;
       const frame = now => {
-        if (id !== growId || routesData !== fc) return;   // nouveau rendu ou réinitialisation entre-temps
+        if (id !== growId) return;   // nouveau rendu entre-temps (il a déjà vidé « grow »)
+        if (routesData !== fc) { growing = false; gsrc()?.setData(EMPTY_FC); return; }   // réinitialisation entre-temps
+        const g = gsrc(); if (!g) return;   // style rechargé entre-temps : addOverlays a déjà remis les tracés complets
         const k = Math.min(1, (now - t0) / DUR), p = (1 - Math.cos(Math.PI * k)) / 2;   // progression régulière, juste adoucie au départ et à l'arrivée
-        src()?.setData(k >= 1 ? fc : { type: "FeatureCollection", features: fc.features.map((f, j) => lines[j]
-          ? { ...f, geometry: { type: "LineString", coordinates: cut(f.geometry.coordinates, lines[j], Math.max(p, .001)) } } : f) });
-        if (k < 1) requestAnimationFrame(frame);
+        if (k >= 1) {
+          /* Fin : tracés complets dans « routes » ; les lignes animées ne sont retirées qu'une fois ceux-ci affichés (pas de clignotement) */
+          growing = false; const s = src(); s?.setData(fc);
+          const swap = () => { if (id !== growId) return; if (s?.loaded && !s.loaded()) return requestAnimationFrame(swap); gsrc()?.setData(EMPTY_FC); };
+          return requestAnimationFrame(swap);
+        }
+        /* Une seule mise à jour en cours à la fois : tant que le worker n'a pas fini la précédente, on saute l'image */
+        if (!g.loaded || g.loaded()) g.setData({ type: "FeatureCollection", features: lines.map(l =>
+          ({ type: "Feature", properties: l.f.properties, geometry: { type: "LineString", coordinates: cut(l.coords, l.cum, Math.max(p, .001)) } })) });
+        requestAnimationFrame(frame);
       };
       requestAnimationFrame(frame);
     }
 
+    /* Trajets Intercités (jour ou nuit) : le plus court chemin sans LGV ne suit pas toujours la desserte réelle
+       (ex. Paris → Toulouse tracé par Bordeaux au lieu de Limoges). Une fois la carte affichée, on récupère en une requête
+       les arrêts d'un train représentatif de chaque variante, et on retrace en passant par ces arrêts (comme la fiche détaillée). */
+    async function refineClassic(fc, rts) {
+      const todo = rts.flatMap(r => r.vars.filter(v => v.rep && v.steps.some(s => s[2])).map(v => ({ r, v, legs: v.rep.legs || [v.rep] })));
+      if (!todo.length || !qDate) return;
+      try { await fetchTrains(qDate, [...new Set(todo.flatMap(x => x.legs.map(l => String(l.no))))]); } catch { return; }
+      let changed = false;
+      for (const { r, v, legs } of todo) {
+        if (routesData !== fc) return;   // nouveau rendu entre-temps
+        const per = await trainStops(legs); if (!per || routesData !== fc) return;
+        if (pathOf === r.name) continue;   // tracé détaillé déjà calculé pour ce trajet
+        const parts = legs.map((l, i) => gRouteVia(l.from, per[i] || [], l.to, isIC(l)));
+        if (!parts.every(p => p?.length)) continue;
+        const coords = pathGeo(parts.flat()).coords;
+        const mine = f => f.geometry.type === "LineString" && f.properties.name === r.name && f.properties.vk === v.key;
+        const old = fc.features.filter(mine); if (!old.length) continue;
+        const { leg, ...props } = old[0].properties;
+        const nf = lineFeats({ ...props, kind: props.ok ? bestKind(legs) : "" }, parts, legs.map(l => l.kind));
+        fc.features.splice(fc.features.indexOf(old[0]), 0, ...nf);   // à la place des anciens traits (même ordre de dessin)
+        for (const f of old) fc.features.splice(fc.features.indexOf(f), 1);
+        v.coords = coords; v.cum = cumul(coords); delete v.bounds;
+        changed = true;
+      }
+      /* Pendant l'animation d'apparition, son image finale reprendra ces tracés corrigés (fc modifié en place) */
+      if (changed && !growing && routesData === fc) map.getSource("routes")?.setData(fc);
+    }
+
     async function render() {
       const wanted = $("dest").value, full = $("full").checked, ks = $("kind").value;
+      await garesReady.catch(() => { });
+      /* Destination précise choisie : les trains arrivant à une gare voisine (ex. Paris Nord pour Paris Gare de Lyon) y sont rattachés,
+         avec le changement de gare à l'arrivée (et au départ du retour) */
+      FAR = xferOn && !rev && wanted ? nearOf(wanted.split("|"), new Set([...HUB_NAMES, ...NEAR_HUB.keys()])) : new Map();
       const g = curG = withConn(group(), false, ks), gb = curGB = rDate ? withConn(group(back, true), true, ks) : null;
       const vias = [...g.values()].flat().flatMap(t => t.via || []);
       await garesReady;
@@ -1377,7 +1782,11 @@
         trains.sort((a, b) => a.dep.localeCompare(b.dep));
         /* Avec une date de retour, une gare n'est « disponible » que s'il reste des places à l'aller ET au retour */
         const rfree0 = gb ? (gb.get(name) || []).filter(t => t.ok && (!ks || t.kind === ks)).sort((a, b) => a.dep.localeCompare(b.dep)) : null;
-        const [free, rfree] = sameDay(trains.filter(t => t.ok), rfree0), ok = free.length > 0 && (!rfree || rfree.length > 0), kind = ok ? bestKind(free) : "";
+        const [free, rfree] = sameDay(trains.filter(t => t.ok), rfree0), ok = free.length > 0 && (!rfree || rfree.length > 0);
+        /* Couleur de la gare (point et pastille) : type du train qui la dessert, c.-à-d. pour une correspondance le dernier train
+           s'il y arrive, le premier s'il en part (et non le type le plus rapide de l'itinéraire) */
+        const side = (l, arriving) => l && l.map(t => ({ kind: t.legs ? (arriving ? t.legs[t.legs.length - 1] : t.legs[0]).kind : t.kind }));
+        const sFree = side(free, !rev), sRfree = side(rfree, rev), kind = ok ? bestKind(sFree) : "";
         if (!ok && !full) continue;
         items.push({ name, trains, ok, free, rfree });
         const c = locate(name);
@@ -1389,14 +1798,13 @@
         const byVar = new Map();
         for (const t of ok ? free : trains) { const k = vkey(t); if (!byVar.has(k)) byVar.set(k, []); byVar.get(k).push(t); }
         const vars = [...byVar].sort(([a], [b]) => vsort(a, b)).map(([key, l]) => {
-          const steps = stepsOf(name, l), segs = stepsRoute(steps), coords = segs?.length ? pathGeo(segs).coords : null;
-          const vk = ok ? bestKind(l) : "";
-          if (coords) feats.push({ type: "Feature", properties: { name, ok, kind: vk, conn: steps.length > 1, vk: key }, geometry: { type: "LineString", coordinates: coords } });
+          const steps = stepsOf(name, l), parts = stepsParts(steps), coords = parts ? pathGeo(parts.flat()).coords : null;
+          if (coords) feats.push(...lineFeats({ name, ok, kind: ok ? bestKind(l) : "", conn: steps.length > 1, vk: key }, parts, steps.map(s => s[3])));
           for (const [v] of steps.slice(1)) { const vc = locate(v); if (vc) { feats.push({ type: "Feature", properties: { name, via: true, vk: key, label: clean(v) }, geometry: { type: "Point", coordinates: vc } }); bounds.extend(vc); } }
           if (coords) for (const xy of coords) bounds.extend(xy);
-          return coords ? { key, steps, coords, cum: cumul(coords) } : { key, steps };
+          return coords ? { key, steps, coords, cum: cumul(coords), rep: l[0] } : { key, steps, rep: l[0] };
         });
-        feats.push({ type: "Feature", properties: { name, ok, kind, label: clean(name), pill: pillId(ok, free, rfree) }, geometry: { type: "Point", coordinates: c } });
+        feats.push({ type: "Feature", properties: { name, ok, kind, label: clean(name), pill: pillId(ok, sFree, sRfree) }, geometry: { type: "Point", coordinates: c } });
         const [a, b] = rev ? [c, o] : [o, c];
         routes.push({ name, a, b, ok, vars });
         bounds.extend(c);
@@ -1405,10 +1813,13 @@
       setOriginMarker(o);
       routesData = { type: "FeatureCollection", features: feats };
       growRoutes(routesData);
+      refineClassic(routesData, routes);
       if (feats.length) map.fitBounds(bounds, { padding: 60, maxZoom: 8 });
       items.sort((a, b) => b.ok - a.ok || a.name.localeCompare(b.name));
       /* Itinéraire avec correspondance : heure de départ suivie de la (des) gare(s) de changement */
-      const deps = l => l.length ? `${l.length} train(s) : ${l.map(t => t.legs ? `${t.dep} (via ${t.via.map(clean).join(", ")})` : t.dep).join(", ")}` : "complet";
+      /* Heure de départ, avec la gare réelle si l'on change de gare avant (« depuis X ») ou après (« arrivée X ») */
+      const xtag = t => t.xs ? ` depuis ${clean(t.xs.b)}` : t.xe ? ` arrivée ${clean(t.xe.a)}` : "";
+      const deps = l => l.length ? `${l.length} train(s) : ${l.map(t => t.legs ? `${t.dep}${xtag(t)} (via ${t.via.map(clean).join(", ")})` : `${t.dep}${xtag(t)}`).join(", ")}` : "complet";
       /* Types de trains disponibles (ordre fixe), et pastille aux couleurs de chacun : une part par type */
       const kindsOf = i => Object.keys(KIND).filter(k => [...i.free, ...(i.rfree || [])].some(t => t.kind === k));
       const dotBg = ks => ks.length < 2 ? KIND[ks[0]]?.[1] || "var(--ko)"
@@ -1428,9 +1839,27 @@
     }
 
     /* legs / per : trains réellement empruntés et leurs arrêts intermédiaires (voir trainStops) ; le tracé passe alors par chaque arrêt */
+    /* Train du retour choisi (x) : son tracé réel (par ses arrêts dès qu'ils sont connus), ses changements de gare et le petit train
+       remplacent ceux de l'aller ; per = arrêts intermédiaires de chaque train (null = pas encore chargés) */
+    function setBackPath(name, x, per = null) {
+      const legs = x.legs || [x], r = routes.find(r => r.name === name);
+      pathData = { type: "FeatureCollection", features: [] }; pathOf = null; backVar = null;
+      if (G.ready) {
+        const parts = legs.map((l, i) => per ? gRouteVia(l.from, per[i] || [], l.to, isIC(l)) : gRoute(l.from, l.to, isIC(l)));
+        if (parts.every(p => p?.length)) {
+          const g = pathGeo(parts.flat()), cum = cumul(g.coords); let n = 0;
+          pathData.features = g.feats; pathOf = name;
+          backVar = { key: "retour", steps: legs.map(l => [l.from, l.to, isIC(l), l.kind]), coords: g.coords, cum, bounds: parts.map(p => cum[(n += pathGeo(p).coords.length) - 1]) };
+        }
+      }
+      map.getSource("path")?.setData(pathData);
+      showXfers([...(x.xs ? [[x.xs.a, x.xs.b]] : []), ...legs.slice(1).map((l, i) => [legs[i].to, l.from]).filter(([a, b]) => a !== b), ...(x.xe ? [[x.xe.a, x.xe.b]] : [])]);
+      applyHighlight();
+      anims = r && backVar && !REDUCE ? [{ r, v: backVar, kinds: legs.map(l => l.kind), start: performance.now(), dur: 1800 + Math.min(backVar.cum[backVar.cum.length - 1], 900) * 3 }] : [];
+    }
     function setPath(name, legs = null, per = null) {
       const r = routes.find(r => r.name === name);
-      pathData = { type: "FeatureCollection", features: [] }; pathOf = null;
+      pathData = { type: "FeatureCollection", features: [] }; pathOf = null; backVar = null;
       const v = curVar(r);
       if (v && G.ready) {
         /* Tracé étape par étape, pour connaître la distance où se fait chaque correspondance (v.bounds, en km) */
@@ -1442,6 +1871,9 @@
         }
       }
       map.getSource("path")?.setData(pathData);
+      /* Changements de gare de l'itinéraire affiché (trains réellement choisis, sinon étapes de la variante) : trajet en métro / RER sur la carte */
+      const L = legs || (v ? v.steps.map(([from, to]) => ({ from, to })) : []), x = v?.rep;
+      showXfers([...(x?.xs ? [[x.xs.a, x.xs.b]] : []), ...L.slice(1).map((l, i) => [L[i].to, l.from]).filter(([a, b]) => a !== b), ...(x?.xe ? [[x.xe.a, x.xe.b]] : [])]);
     }
     /* ---------- Arrêts intermédiaires ----------
        Le jeu de données contient une ligne par couple de gares desservies par un même train : toutes les lignes d'un numéro de train
@@ -1461,10 +1893,10 @@
     }
     /* legs : trains effectivement empruntés (un par tronçon d'itinéraire). Arrêts = gares desservies strictement entre la montée et la descente. */
     /* Par train : gares desservies entre la montée et la descente, dans l'ordre de passage (null si indisponible) */
-    async function trainStops(legs) {
-      if (!legs?.length || !qDate) return null;
+    async function trainStops(legs, date = qDate) {
+      if (!legs?.length || !date) return null;
       const nos = [...new Set(legs.map(l => String(l.no)))];
-      let rows; try { rows = await fetchTrains(qDate, nos); } catch { return null; }
+      let rows; try { rows = await fetchTrains(date, nos); } catch { return null; }
       return legs.map(l => {
         const d0 = mins(l.dep), D = durMin(l), at = new Map();
         for (const r of rows) {
@@ -1478,10 +1910,10 @@
         return [...at].sort((a, b) => a[1] - b[1]).map(([n]) => n);
       });
     }
-    async function setStops(legs) {
+    async function setStops(legs, date = qDate) {
       const id = ++stopsReq;
       stopsData = EMPTY_FC; map.getSource("stops")?.setData(stopsData);
-      const per = await trainStops(legs);
+      const per = await trainStops(legs, date);
       if (!per || id !== stopsReq) return null;
       const names = new Set(per.flat());
       await geocodeMissing([...names]);
@@ -1493,7 +1925,7 @@
     }
     function show(name, fromMap = false, keepVar = false) {
       const t0 = curG.get(name); if (!t0) return;
-      if (!keepVar || selected !== name) selVar = selTrain = trainVar = null;
+      if (!keepVar || selected !== name) selVar = selTrain = trainVar = selBack = null;
       /* Uniquement les trains avec des places MAX JEUNE, classés par heure de départ */
       const freeSorted = l => l.filter(x => x.ok).sort((a, b) => a.dep.localeCompare(b.dep) || a.arr.localeCompare(b.arr));
       const [tAll, tb] = sameDay(freeSorted(t0), rDate ? freeSorted(curGB?.get(name) || []) : null);
@@ -1502,37 +1934,49 @@
       if (selVar != null && !vkeys.includes(selVar)) selVar = null;
       const t = selVar == null ? tAll : tAll.filter(x => vkey(x) === selVar);
       /* Train choisi (ou le seul de la liste) : ses arrêts sont affichés */
-      let chosen = t.find(x => tkey(x) === selTrain) || null;
-      if (!chosen) { selTrain = trainVar = null; if (t.length === 1) chosen = t[0]; }
+      /* Train du retour choisi : c'est lui qui est tracé (l'aller n'est alors pas choisi) */
+      const chosenB = (selBack && tb?.find(x => tkey(x) === selBack)) || null;
+      if (!chosenB) selBack = null;
+      let chosen = chosenB ? null : t.find(x => tkey(x) === selTrain) || null;
+      if (!chosen) { selTrain = trainVar = null; if (t.length === 1 && !chosenB) chosen = t[0]; }
       const chips = vkeys.length < 2 ? "" : `<div class="vchips" role="group" aria-label="Itinéraires à afficher">${[[null, "Tous", tAll.length], ...vkeys.map(k => [k, vlabel(k, vkeys), tAll.filter(x => vkey(x) === k).length])]
         .map(([k, l, n]) => `<button type="button" class="vchip${k === selVar ? " sel" : ""}" aria-pressed="${k === selVar}"${k == null ? " data-all" : ` data-k="${attr(k)}"`}>${l} <span>${n}</span></button>`).join("")}</div>`;
       const [A, B] = ends(name);
       popup?.remove(); $("list").querySelector(".detail")?.remove();
-      selected = name; setPath(name); applyHighlight(); launch(name, chosen ? (chosen.legs || [chosen]).map(l => l.kind) : null);
-      const stopsP = setStops(chosen && pathOf === name ? chosen.legs || [chosen] : []);
-      /* Le tracé doit passer par les arrêts réels : celui du train choisi, sinon du premier train de la variante tracée */
-      const v0 = curVar(routes.find(r => r.name === name)), ref = chosen || (v0 && t.find(x => vkey(x) === v0.key));
+      selected = name;
       const req = ++pathReq;
+      const pfoot = () => { const f = $("list").querySelector(".detail .pfoot"); if (f && pathOf === name) f.textContent = `Tracé réel : ${pathData.features.length} tronçon(s), jusqu'à ${Math.max(...pathData.features.map(f => f.properties.v))} km/h`; };
+      let stopsP;
+      if (chosenB) {
+        /* Retour : tracé tout de suite, puis recalé sur les arrêts réels du train dès qu'ils sont chargés */
+        setBackPath(name, chosenB);
+        stopsP = setStops(chosenB.legs || [chosenB], rDate);
+        stopsP.then(per => { if (per && req === pathReq && selected === name && selBack === tkey(chosenB)) { setBackPath(name, chosenB, per); pfoot(); } });
+      } else {
+        setPath(name); applyHighlight(); launch(name, chosen ? (chosen.legs || [chosen]).map(l => l.kind) : null);
+        stopsP = setStops(chosen && pathOf === name ? chosen.legs || [chosen] : []);
+      }
+      /* Le tracé doit passer par les arrêts réels : celui du train choisi, sinon du premier train de la variante tracée */
+      const v0 = curVar(routes.find(r => r.name === name)), ref = chosenB ? null : chosen || (v0 && t.find(x => vkey(x) === v0.key));
       if (ref && pathOf === name) {
         const legs = ref.legs || [ref];
         (chosen ? stopsP : trainStops(legs)).then(per => {
           if (!per || req !== pathReq || selected !== name) return;
-          setPath(name, legs, per);
-          const f = $("list").querySelector(".detail .pfoot");
-          if (f && pathOf === name) f.textContent = `Tracé réel : ${pathData.features.length} tronçon(s), jusqu'à ${Math.max(...pathData.features.map(f => f.properties.v))} km/h`;
+          setPath(name, legs, per); pfoot();
         });
       }
       /* Train de nuit choisi : le mode nuit s'active ; il se désactive si c'était automatique et que le train choisi n'est plus de nuit */
-      const isNight = !!chosen && (chosen.legs || [chosen]).some(l => l.kind === "ICN");
+      const picked = chosen || chosenB, isNight = !!picked && (picked.legs || [picked]).some(l => l.kind === "ICN");
       if (isNight) setNight(true, true); else if (nightAuto) setNight(false, true);
       const ids = new Map([...t, ...(tb || [])].flatMap(x => x.legs || [x]).flatMap(x => [x.from, x.to]).map(n => [n, tlId(n)]));
       const hm = d => `${Math.floor(d / 60)}h${String(d % 60).padStart(2, "0")}`;
       const dur = x => hm(durMin(x));
-      /* pk : attributs d'un train de l'aller, cliquable pour afficher ses arrêts */
-      const pk = x => ` data-t="${attr(tkey(x))}" tabindex="0" role="button" aria-pressed="${x === chosen}" title="Afficher les arrêts de ce train sur la carte"`;
+      /* pk : attributs d'un train cliquable (aller, ou retour : data-b), pour afficher son tracé et ses arrêts */
+      const isPick = x => x === chosen || x === chosenB;
+      const pk = x => ` data-t="${attr(tkey(x))}"${tb?.includes(x) ? " data-b" : ""} tabindex="0" role="button" aria-pressed="${isPick(x)}" title="Afficher ce train et ses arrêts sur la carte"`;
       const trow = (x, date, pick) => {
         const o = ids.get(x.from), d = ids.get(x.to), k = KIND[x.kind];
-        return `<div class="trow${pick ? ` pickable${x === chosen ? " pick" : ""}` : ""}"${pick ? pk(x) : ""}>
+        return `<div class="trow${pick ? ` pickable${isPick(x) ? " pick" : ""}` : ""}"${pick ? pk(x) : ""}>
     <div class="ttime"><b>${x.dep}</b><span class="tdur">${dur(x)}</span><b>${x.arr}</b></div>
     <div class="tst"><span>${clean(x.from)}</span><span>${clean(x.to)}</span></div>
     <div class="tmeta">${k ? `<span class="badge" style="background:${k[1]}">${k[0]}</span>` : ""}<span>Train ${x.no}</span></div>
@@ -1541,12 +1985,26 @@
       /* Itinéraire avec correspondance(s) : en-tête (horaires et durée totale), puis chaque train à réserver séparément */
       const connRow = (x, date, pick) => {
         const n = x.legs.length - 1;
-        return `<div class="tconn${pick ? ` pickable${x === chosen ? " pick" : ""}` : ""}"${pick ? pk(x) : ""}>
+        return `<div class="tconn${pick ? ` pickable${isPick(x) ? " pick" : ""}` : ""}"${pick ? pk(x) : ""}>
     <div class="tconn-head"><div class="ttime"><b>${x.dep}</b><span class="tdur">${dur(x)}</span><b>${x.arr}</b></div>
     <div class="tconn-sub">${n} correspondance${n > 1 ? "s" : ""} · via ${x.via.map(clean).join(", ")}</div></div>
-    ${x.legs.map((l, i) => (i ? `<div class="twait">Correspondance à ${clean(l.from)} · ${hm(mins(l.dep) - mins(x.legs[i - 1].arr))} d'attente</div>` : "") + trow(l, date)).join("")}</div>`;
+    ${x.legs.map((l, i) => {
+          if (!i) return trow(l, date);
+          const p = x.legs[i - 1], w = hm(mins(l.dep) - mins(p.arr));
+          if (p.to === l.from) return `<div class="twait">Correspondance à ${clean(l.from)} · ${w} d'attente</div>` + trow(l, date);
+          return xferInfo(p.to, l.from, "Changement de gare", xferBetween(p.to, l.from), ` · ${w} entre les deux trains`) + trow(l, date);
+        }).join("")}</div>`;
       };
-      const rowsOf = (list, date, pick) => list.map(x => x.legs ? connRow(x, date, pick) : trow(x, date, pick)).join("") || `<div class="tempty">Aucune place MAX JEUNE ce jour-là.</div>`;
+      /* Changement de gare a → b : ligne d'en-tête, puis comment s'y rendre (métro, RER…) et lien d'itinéraire */
+      const xferInfo = (a, b, head, xm, tail = "") => {
+        const how = xferHow(a, b);
+        return `<div class="twait">${head} : ${clean(a)} → ${clean(b)}${xm ? ` (prévoir ~${xm} min)` : ""}${tail}</div>
+    <div class="txfer">${how ? `${how} ` : ""}<a href="${xferLink(a, b)}" target="_blank" rel="noopener">${how ? "Voir l'itinéraire" : "Itinéraire en transports en commun"}</a></div>`;
+      };
+      /* Changement de gare avant le premier train (xs) ou après le dernier (xe) */
+      const withXfer = (x, row) => (x.xs ? xferInfo(x.xs.a, x.xs.b, "Avant le départ, changement de gare", x.xs.min) : "") + row
+        + (x.xe ? xferInfo(x.xe.a, x.xe.b, "À l'arrivée, changement de gare", x.xe.min) : "");
+      const rowsOf = (list, date, pick) => list.map(x => withXfer(x, x.legs ? connRow(x, date, pick) : trow(x, date, pick))).join("") || `<div class="tempty">Aucune place MAX JEUNE ce jour-là.</div>`;
       const nTr = n => `<b>${n}</b> train${n > 1 ? "s" : ""}`;
       const rows = !tb ? rowsOf(t, qDate, true)
         : `<div class="psec">Aller · ${frDate(qDate)} · ${t.length} train${t.length > 1 ? "s" : ""}</div>${rowsOf(t, qDate, true)}
@@ -1558,11 +2016,11 @@
       det.innerHTML = `<div class="det-head"><span>${tb ? `Aller ${frDate(qDate)} · ${nTr(t.length)} — Retour ${frDate(rDate)} · ${nTr(tb.length)}` : `${frDate(qDate)} · ${nTr(t.length)} MAX JEUNE`}</span>
     <button class="det-x" type="button" title="Fermer" aria-label="Fermer le détail"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button></div>
     ${chips}${rows}
-    ${pathOf === name ? `<div class="pfoot">Tracé réel : ${pathData.features.length} tronçon(s), jusqu'à ${Math.max(...pathData.features.map(f => f.properties.v))} km/h</div>` : ""}<div class="hint">${t.length > 1 ? "Cliquez sur un train de l'aller pour afficher ses arrêts sur la carte. " : ""}Les boutons ouvrent la recherche de ce train (choisissez ensuite le tarif MAX JEUNE sur SNCF Connect).${[...t, ...(tb || [])].some(x => x.legs) ? ` Avec correspondance, chaque train se réserve séparément : en cas de retard, la correspondance n'est pas garantie (correspondance minimale de ${MIN_CORR} min${maxWait < Infinity ? `, attente maximale de ${maxWait / 60} h` : ""}).` : ""}</div>`;
+    ${pathOf === name ? `<div class="pfoot">Tracé réel : ${pathData.features.length} tronçon(s), jusqu'à ${Math.max(...pathData.features.map(f => f.properties.v))} km/h</div>` : ""}<div class="hint">${t.length > 1 || tb?.length ? "Cliquez sur un train (aller ou retour) pour l'afficher avec ses arrêts sur la carte. " : ""}Les boutons ouvrent la recherche de ce train (choisissez ensuite le tarif MAX JEUNE sur SNCF Connect).${[...t, ...(tb || [])].some(x => x.legs) ? ` Avec correspondance, chaque train se réserve séparément : en cas de retard, la correspondance n'est pas garantie (correspondance minimale de ${MIN_CORR} min${maxWait < Infinity ? `, attente maximale de ${maxWait / 60} h` : ""}).` : ""}</div>`;
       det.querySelector(".det-x").onclick = () => { closeDetail(); li.focus?.(); };
       det.querySelectorAll(".vchip").forEach(b => b.onclick = () => pickVar(name, "all" in b.dataset ? null : b.dataset.k));
       det.querySelectorAll("[data-t]").forEach(el => {
-        const go = () => pickTrain(name, el.dataset.t === selTrain ? null : el.dataset.t);
+        const back = "b" in el.dataset, go = () => pickTrain(name, el.dataset.t === (back ? selBack : selTrain) ? null : el.dataset.t, back);
         el.onclick = e => { if (!e.target.closest("a, button")) go(); };
         el.onkeydown = e => { if (e.target === el && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); go(); } };
       });
@@ -1581,19 +2039,24 @@
     }
     /* Choix d'une variante (bouton de la fiche ou clic sur son tracé) : seule elle reste sur la carte */
     function pickVar(name, key) {
-      selVar = key; selTrain = trainVar = null; show(name, false, true); focusRoute(name);
+      selVar = key; selTrain = trainVar = selBack = null; show(name, false, true); focusRoute(name);
       $("list").querySelector(`.vchip${key == null ? "[data-all]" : `[data-k="${CSS.escape(key)}"]`}`)?.focus({ preventScroll: true });
     }
     /* Choix d'un train de l'aller (clic sur sa carte) : sa variante est tracée et ses arrêts apparaissent ; second clic = annule */
-    function pickTrain(name, key) {
-      const x = key && (curG.get(name) || []).find(x => tkey(x) === key);
-      selTrain = x ? key : null; trainVar = x ? vkey(x) : null;
+    function pickTrain(name, key, back = false) {
+      if (back) {
+        /* Train du retour : il remplace l'aller sur la carte (second clic = on revient à l'aller) */
+        selBack = key && (curGB?.get(name) || []).some(x => tkey(x) === key) ? key : null; selTrain = trainVar = null;
+      } else {
+        const x = key && (curG.get(name) || []).find(x => tkey(x) === key);
+        selTrain = x ? key : null; trainVar = x ? vkey(x) : null; selBack = null;
+      }
       show(name, false, true); focusRoute(name);
-      if (key) $("list").querySelector(`[data-t="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
+      if (key) $("list").querySelector(`[data-t="${CSS.escape(key)}"]${back ? "[data-b]" : ":not([data-b])"}`)?.focus({ preventScroll: true });
     }
     function closeDetail() {
       $("list").querySelector(".detail")?.remove();
-      selVar = selTrain = trainVar = null;
+      selVar = selTrain = trainVar = selBack = null;
       if (nightAuto) setNight(false, true);
       if (selected) { selected = null; applyHighlight(); }
     }
@@ -1618,10 +2081,18 @@
       if (e?.isTrusted) toMap();
       $("go").disabled = true; $("status").textContent = "Recherche en cours…";
       try {
-        const codes = allO ? "" : oIata.split(",").map(c => `"${esc(c)}"`).join(",");
-        const where = allO ? `${F.date}=date'${date}' AND ${whereStation(F.dest, F.destIata, d0)}` : `${F.date}=date'${date}' AND ${F.originIata} IN (${codes})`;
+        /* Gares voisines de la gare fixe (départ, ou destination en mode « toutes les gares de départ ») : leurs trains sont aussi cherchés,
+           avec un changement de gare (métro, RER…) au début du trajet, ou à la fin */
+        await garesReady.catch(() => { });
+        xferOn = $("xfer").checked;
+        HUB_NAMES = allO ? d0.split("|") : catalog().filter(s => oIata.split(",").includes(s.code)).map(s => s.name);
+        NEAR_HUB = xferOn ? nearOf(HUB_NAMES) : new Map(); FAR = new Map();
+        const nearCodes = [...new Set([...NEAR_HUB.values()].map(x => x.code))].filter(c => !oIata.split(",").includes(c));
+        const hubSt = allO ? [d0, ...NEAR_HUB.keys()].join("|") : "";
+        const codes = allO ? "" : [...oIata.split(","), ...nearCodes].map(c => `"${esc(c)}"`).join(",");
+        const where = allO ? `${F.date}=date'${date}' AND ${whereStation(F.dest, F.destIata, hubSt)}` : `${F.date}=date'${date}' AND ${F.originIata} IN (${codes})`;
         /* Retour : trains qui reviennent vers la gare de départ (ou qui repartent de la destination fixe en mode « toutes les gares ») */
-        const whereBack = !ret ? null : allO ? `${F.date}=date'${ret}' AND ${whereStation(F.origin, F.originIata, d0)}` : `${F.date}=date'${ret}' AND ${F.destIata} IN (${codes})`;
+        const whereBack = !ret ? null : allO ? `${F.date}=date'${ret}' AND ${whereStation(F.origin, F.originIata, hubSt)}` : `${F.date}=date'${ret}' AND ${F.destIata} IN (${codes})`;
         /* Trains d'aujourd'hui déjà partis au lancement de la requête : on ne peut plus les prendre, on les retire */
         const now = new Date(), day = iso(now), hhmm = now.toTimeString().slice(0, 5);
         const notGone = d => r => d !== day || String(r[F.dep] || "").padStart(5, "0") > hhmm;
@@ -1630,18 +2101,18 @@
         maxWait = corr && $("wait").value ? +$("wait").value * 60 : Infinity;
         const [out, bk, dOut, dBk] = await Promise.all([fetchAll({ where }), whereBack ? fetchAll({ where: whereBack }) : [],
           corr ? fetchDay(date) : [], corr && ret ? fetchDay(ret) : []]);
-        all = out.filter(notGone(date)); back = bk.filter(notGone(ret)); rDate = ret || null;
+        all = out.filter(notGone(date)).filter(xferRowOk(allO, false)); back = bk.filter(notGone(ret)).filter(xferRowOk(allO, true)); rDate = ret || null;
         dayOut = dOut.filter(notGone(date)).map(toTrain); dayBack = dBk.filter(notGone(ret)).map(toTrain); nCorr = corr;
         rev = allO; originIata = oIata; qDate = date;
         dest0 = allO ? $("dest").selectedOptions[0].text : null;   // gare, ou « Ville (toutes les gares) »
         origin = allO ? null : $("origin").selectedOptions[0].text;
         /* Codes de la gare fixe : ceux du départ, ou (mode inversé) ceux des gares de destination choisies */
         if (allO) {
-          const ns = new Set(d0.split("|")), cs = new Set();
+          const ns = new Set([...d0.split("|"), ...NEAR_HUB.keys()]), cs = new Set();
           for (const x of [...dayOut, ...dayBack]) { if (ns.has(x.to)) cs.add(x.dIata); if (ns.has(x.from)) cs.add(x.oIata); }
           for (const r of all) cs.add(r[F.destIata]);
           hubCodes = [...cs];
-        } else hubCodes = oIata.split(",");
+        } else hubCodes = [...oIata.split(","), ...nearCodes];
         /* Gares atteintes seulement avec correspondance (tous types de trains) */
         const viaOnly = !allO && corr ? [...connections(dayOut, hubCodes, true, corr, "").keys()] : [];
         /* Mode normal : destinations desservies (directes ou avec correspondance) ; la destination déjà choisie est conservée */
@@ -1669,7 +2140,8 @@
       const to = $("dest").value ? clean(dText) : "Toutes les destinations";
       const kind = ($("kind").value ? ` · ${$("kind").selectedOptions[0].text}` : "")
         + (+$("corr").value ? ` · jusqu'à ${$("corr").value} correspondance${$("corr").value > 1 ? "s" : ""}` : "")
-        + (+$("corr").value && $("wait").value ? ` (attente ≤ ${$("wait").value} h)` : "");
+        + (+$("corr").value && $("wait").value ? ` (attente ≤ ${$("wait").value} h)` : "")
+        + ($("xfer").checked ? " · changements de gare autorisés" : "");
       const dates = $("ret").value ? `Aller ${frDate($("date").value)} · retour ${frDate($("ret").value)}` : `${frDate($("date").value)} · aller simple`;
       $("recap-txt").innerHTML = `<b>${from} → ${to}</b><span>${dates}${kind}</span>`;
     }
@@ -1677,9 +2149,9 @@
        (dates, gare de départ, destination, type de train, trains complets) pour pouvoir la modifier */
     function resetAll() {
       all = []; back = []; rDate = null; dayOut = []; dayBack = []; nCorr = 0; hubCodes = []; curG = new Map(); curGB = null; rev = false; dest0 = null; origin = null; originIata = null; qDate = null;
-      selected = null; selVar = selTrain = trainVar = null; routes = []; pathOf = null; popup?.remove(); popup = null;
+      selected = null; selVar = selTrain = trainVar = selBack = null; backVar = null; routes = []; pathOf = null; popup?.remove(); popup = null;
       routesData = { type: "FeatureCollection", features: [] }; pathData = { type: "FeatureCollection", features: [] };
-      map.getSource("routes")?.setData(routesData); map.getSource("path")?.setData(pathData); setStops([]);
+      map.getSource("routes")?.setData(routesData); map.getSource("path")?.setData(pathData); setStops([]); showXfers([]);
       setOriginMarker(null);
       $("list").innerHTML = "";
       $("status").textContent = "Choisissez une date et une gare de départ.";
