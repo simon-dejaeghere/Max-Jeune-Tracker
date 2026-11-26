@@ -1040,6 +1040,132 @@ header > select:focus {
     filter: brightness(1.12)
 }
 
+/* Trains de l'aller cliquables : le train choisi est encadré, ses arrêts s'affichent sur la carte et sous ses horaires */
+.pickable {
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s
+}
+
+.pickable:hover {
+    border-color: #9fb3c8
+}
+
+.pickable:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px
+}
+
+.trow.pick,
+.tconn.pick {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(31, 78, 140, .18)
+}
+
+.trow.pick {
+    border-left-color: var(--accent)
+}
+
+.tstops {
+    margin-top: 4px;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--mute)
+}
+
+.tstops i {
+    color: #3d4f63
+}
+
+/* Variantes d'itinéraire (Tous / Direct / via X…) : boutons pour n'afficher qu'une variante sur la carte et dans la liste */
+.vchips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 2px 0 10px
+}
+
+#list .vchip {
+    width: auto;
+    margin: 0;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    transition: border-color .15s, background .15s
+}
+
+#list .vchip span {
+    margin-left: 3px;
+    font-weight: 500;
+    color: var(--mute)
+}
+
+#list .vchip:hover {
+    border-color: var(--accent)
+}
+
+#list .vchip.sel {
+    color: #fff;
+    background: var(--accent);
+    border-color: var(--accent)
+}
+
+#list .vchip.sel span {
+    color: rgba(255, 255, 255, .8)
+}
+
+/* Itinéraire avec correspondance(s) : un cadre en pointillés regroupe l'en-tête (horaires totaux) et les trains à réserver */
+.tconn {
+    margin-bottom: 8px;
+    padding: 8px;
+    background: #f6f8fb;
+    border: 1px dashed #b8c4d1;
+    border-radius: 10px
+}
+
+.tconn-head {
+    padding: 0 2px 7px
+}
+
+.tconn-sub {
+    margin-top: 2px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--mute)
+}
+
+.tconn .trow {
+    margin-bottom: 0
+}
+
+.twait {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 4px;
+    font-size: 11px;
+    color: var(--mute)
+}
+
+.twait::before {
+    content: "";
+    width: 2px;
+    height: 14px;
+    margin: 0 6px 0 4px;
+    border-left: 2px dotted #8795a5
+}
+
+.psec + .tconn {
+    margin-top: 0
+}
+
+.tconn + .psec {
+    margin-top: 14px
+}
+
 .tempty {
     padding: 14px 6px;
     text-align: center;
@@ -1568,4 +1694,166 @@ label .opt {
     outline: 0;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(31, 78, 140, .12)
+}
+
+/* ---------- Mode nuit ---------- */
+/* Interrupteur avec une petite lune, en haut à droite du panneau */
+header {
+    position: relative
+}
+
+.brand {
+    padding-right: 58px
+}
+
+.night-tg {
+    position: absolute;
+    top: 22px;
+    right: 16px;
+    width: 46px;
+    height: 26px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #e4e9ef;
+    color: #8a98a8;
+    box-shadow: inset 0 1px 2px rgba(16, 24, 40, .08);
+    cursor: pointer;
+    transition: background .3s, border-color .3s
+}
+
+.night-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    color: #9aa8b7;
+    box-shadow: 0 1px 3px rgba(16, 24, 40, .25);
+    transition: transform .3s cubic-bezier(.4, 1.4, .6, 1), background .3s, color .3s
+}
+
+.night-star {
+    position: absolute;
+    color: #ffd23f;
+    opacity: 0;
+    transition: opacity .3s
+}
+
+.night-star.s1 {
+    top: 6px;
+    left: 9px
+}
+
+.night-star.s2 {
+    top: 14px;
+    left: 16px
+}
+
+.night-tg:hover {
+    border-color: var(--accent)
+}
+
+.night-tg:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px
+}
+
+.night-tg[aria-checked="true"] {
+    background: #0e1624;
+    border-color: #2f3d52
+}
+
+.night-tg[aria-checked="true"] .night-knob {
+    transform: translateX(20px);
+    background: #1d2a3e;
+    color: #ffd23f
+}
+
+.night-tg[aria-checked="true"] .night-star {
+    opacity: 1
+}
+
+/* Thème sombre du panneau, des listes et des fenêtres */
+body.night {
+    --bg: #0f1621;
+    --ink: #e3e9f0;
+    --mute: #8c9bab;
+    --ok: #2fbf8f;
+    --ko: #5d6b7a;
+    --line: #253244;
+    --accent: #4d8ade;
+    --card: #162030;
+    --card2: #121b28;
+    color-scheme: dark;
+    background: var(--bg)
+}
+
+body.night :is(select, .pbtn, .swap, .dp-btn, .dp-pop, .dp-body, .det-x, .trow, #list .vchip, #speed, #sbtn, #sres, #sq, #back,
+    .dd-item, .dd-item::before, .chk input::before, .dd-search:focus-within, #list li:hover, #list li.sel, .pop-x:hover, .maplibregl-popup-content) {
+    background-color: var(--card);
+    color: var(--ink)
+}
+
+body.night :is(.pop-body, #list li.detail, #list li.detail:hover, .tconn) {
+    background: var(--card2)
+}
+
+body.night :is(.dd-item, .tconn, .trow, #list .vchip, .pbtn, .dp-btn, select) {
+    border-color: var(--line)
+}
+
+body.night .tdur::before,
+body.night .tdur::after {
+    border-top-color: #34435a
+}
+
+body.night :is(#list .vchip.sel, .dd-item.sel) {
+    background: var(--accent);
+    color: #fff
+}
+
+body.night .tstops i {
+    color: #c3ceda
+}
+
+body.night input {
+    color: var(--ink)
+}
+
+body.night .maplibregl-popup-tip {
+    border-top-color: var(--card);
+    border-bottom-color: var(--card)
+}
+
+/* Boutons de la carte (zoom, sélecteur de fonds) : fond sombre, pictogrammes éclaircis */
+body.night .maplibregl-ctrl-group {
+    background: var(--card);
+    box-shadow: 0 0 0 1px var(--line)
+}
+
+body.night .maplibregl-ctrl-group button + button {
+    border-top-color: var(--line)
+}
+
+body.night .maplibregl-ctrl-group .maplibregl-ctrl-icon {
+    filter: invert(.88) hue-rotate(180deg)
+}
+
+body.night .maplibregl-ctrl-attrib {
+    background: rgba(15, 22, 33, .75);
+    color: var(--mute)
+}
+
+body.night .maplibregl-ctrl-attrib a {
+    color: var(--mute)
+}
+
+body.night #map {
+    background: #0c121b
 }

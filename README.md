@@ -35,6 +35,7 @@ Code écrit à 100 % avec [Claude](https://claude.com/claude-code).
 - **Bouton d'inversion** départ ⇄ destination.
 - **Filtre par type de train** : TGV INOUI, Intercités (jour), Intercités de nuit.
 - **Option « Afficher aussi les trains complets »**.
+- **Correspondances** : trajets directs uniquement, ou jusqu'à 1 ou 2 correspondances. Chaque train de l'itinéraire doit avoir des places MAX JEUNE, le changement se fait dans la même gare avec au moins 15 minutes (attente maximale réglable de 1 h à 5 h, ou sans limite) ; une correspondance n'est proposée que si elle apporte un horaire que les trajets directs n'offrent pas.
 - Les trains du jour déjà partis sont retirés automatiquement.
 
 ### Résultats
@@ -45,12 +46,15 @@ Code écrit à 100 % avec [Claude](https://claude.com/claude-code).
 ### Carte
 - Fonds de carte **IGN** (plan désaturé par défaut, plan simple, photos aériennes), via Carte facile.
 - **Tracé ferroviaire réel** de chaque trajet (et non une ligne droite), coloré selon le type de train.
+- Trajets avec correspondance tracés **en pointillés**, gare par gare. Une destination accessible par plusieurs itinéraires (direct, via Nancy, via Strasbourg…) les montre **tous** ; dans la fiche détaillée, des boutons (ou un clic sur un tracé) permettent de n'en garder **qu'un** sur la carte et dans la liste des trains. Les gares de correspondance apparaissent quand le trajet est sélectionné.
 - **Étiquette** sur chaque gare desservie, avec une **bulle indiquant le nombre de trains disponibles**.
-- Au clic sur un trajet : mise en avant du trajet, **coloration selon la vitesse maximale** de chaque tronçon, et petits trains animés.
+- Au clic sur un trajet : mise en avant du trajet, **coloration selon la vitesse maximale** de chaque tronçon, et petits trains animés, dessinés selon le type de train (rame TGV INOUI Duplex avec motrice à chaque bout, OUIGO, locomotive et voitures Corail Intercités, voitures-couchettes Intercités de nuit) ; avec correspondance, la rame change de dessin à chaque changement de train.
+- **Arrêts intermédiaires** d'un train précis : dans la fiche détaillée, un clic sur un train de l'aller (ou un itinéraire avec correspondance) trace son trajet et affiche ses arrêts sur la carte (mini ronds, noms en italique) et sous ses horaires. Ils sont déduits des lignes du jeu de données pour ce numéro de train, chargées à la demande.
 - Couches activables dans le sélecteur de cartes : **tronçons ferroviaires** et **gares voyageurs**.
 - **Loupe** pour rechercher une gare directement sur la carte et lancer la recherche depuis celle-ci.
 
 ### Divers
+- **Mode nuit** : interrupteur avec une petite lune en haut du panneau. Le fond de carte IGN est recoloré à la volée en bleu nuit (textes clairs, halos sombres), ainsi que le panneau et les étiquettes. Il s'active tout seul quand on choisit un train de nuit, et se désactive quand on passe à un autre train ou ferme la fiche (sauf s'il a été activé à la main).
 - **Responsive** : sur téléphone, la page défile (formulaire, carte, liste) et la carte vient à l'écran après une recherche.
 - Aucun cookie, aucun compte, aucune donnée personnelle collectée.
 
@@ -103,8 +107,9 @@ Une connexion Internet est nécessaire : les disponibilités, les fonds de carte
 - **Disponibilités** : interrogées en direct sur l'API du portail open data SNCF, jeu de données [`tgvmax`](https://ressources.data.sncf.com/explore/dataset/tgvmax/) (endpoint `exports/json`). Le champ `od_happy_card` indique s'il reste des places MAX JEUNE.
   Les noms de champs utilisés sont regroupés dans la constante `F` de `index.html`, à ajuster si la SNCF les modifie.
 - **Placement des gares** : d'abord par la liste des gares SNCF ; pour les noms introuvables, par le [géocodage de la Géoplateforme IGN](https://geoservices.ign.fr/). Les coordonnées trouvées sont gardées en cache dans le `localStorage` du navigateur (clé `geoGares`).
-- **Tracés** : les tronçons de `trainnomade-traces-ferroviaires.geojson` forment un graphe ; le chemin entre deux gares est calculé avec l'algorithme de Dijkstra. Pour les destinations desservies uniquement par des Intercités, le calcul privilégie les lignes classiques.
+- **Tracés** : les tronçons de `trainnomade-traces-ferroviaires.geojson` forment un graphe ; le chemin entre deux gares est calculé avec l'algorithme de Dijkstra. Les Intercités (de jour comme de nuit) sont tracés sur les lignes classiques (tronçons à moins de 250 km/h) ; quand une destination est desservie à la fois par des TGV et par des Intercités, chacun a son propre tracé.
 - **Carte** : [MapLibre GL JS](https://maplibre.org/) 6 et [Carte facile](https://www.npmjs.com/package/carte-facile) (fonds IGN et sélecteur de cartes), chargés depuis unpkg via une *import map*. Les étiquettes des gares et leurs bulles sont dessinées en canvas puis ajoutées comme images de la carte.
+- **Correspondances** : quand elles sont demandées, tous les trains du jour avec des places MAX JEUNE sont chargés en une requête (`od_happy_card="OUI"`, ~1 Mo), puis les itinéraires sont calculés dans le navigateur par couches (1, 2 puis 3 trains) en ne gardant, pour chaque gare, que les itinéraires non dominés (départ plus tard et arrivée plus tôt).
 - **Liens de réservation** : SNCF Connect (lien de redirection avec gares, date et heure) et Trainline (identifiants de gares Trainline intégrés dans la constante `TL_IDS`).
 
 ---
