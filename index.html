@@ -153,8 +153,8 @@
       </div>
     </header>
     <div id="status">Choisissez une date et une gare de départ.</div>
-    <div id="legend"><span><i style="background:#12926b"></i>TGV INOUI</span><span><i
-          style="background:#d9822b"></i>Intercités</span><span><i style="background:#6c4ab6"></i>Intercités de
+    <div id="legend"><span><i style="background:#14837a"></i>TGV INOUI</span><span><i
+          style="background:#c08a3e"></i>Intercités</span><span><i style="background:#5b62b3"></i>Intercités de
         nuit</span><span><i style="background:#a9b4bf"></i>Complet</span></div>
     <ul id="list"></ul>
   </aside>
@@ -296,8 +296,11 @@
 
     /* Type de train : TGV INOUI / OUIGO / Intercités (jour) / Intercités de nuit, d'après les champs entity et axe du jeu de données.
        Une liaison arrivant le lendemain après 4 h 30 ou plus de trajet est considérée comme « de nuit ». */
-    const KIND = { TGV: ["TGV INOUI", "#12926b"], OUIGO: ["OUIGO", "#e5398a"], IC: ["Intercités", "#d9822b"], ICN: ["Intercités de nuit", "#6c4ab6"] };
-    const KCOL = ["match", ["get", "kind"], "TGV", "#12926b", "OUIGO", "#e5398a", "IC", "#d9822b", "ICN", "#6c4ab6", "#a9b4bf"];
+    const KIND = { TGV: ["TGV INOUI", "#14837a"], OUIGO: ["OUIGO", "#c55a86"], IC: ["Intercités", "#c08a3e"], ICN: ["Intercités de nuit", "#5b62b3"] };
+    /* Points des destinations (hors gares de correspondance) dans la source « routes » */
+    const IS_LINE = ["==", ["geometry-type"], "LineString"], IS_CONN = ["==", ["get", "conn"], true];
+    const IS_PT = ["all", ["==", ["geometry-type"], "Point"], ["!=", ["get", "via"], true]];
+    const KCOL = ["match", ["get", "kind"], "TGV", "#14837a", "OUIGO", "#c55a86", "IC", "#c08a3e", "ICN", "#5b62b3", "#a9b4bf"];
     const overnight = x => { const m = h => { const [a, b] = h.split(":"); return +a * 60 + +b; }; const d = m(x.arr) - m(x.dep); return d < 0 && d + 1440 >= 270; };
     /* Le jeu de données tgvmax ne contient aujourd'hui aucun OUIGO (filtre et légende retirés). Reconnaissance gardée au cas où il en contiendrait :
        par le nom (entity/axe) ou les numéros de train (76xx à 79xx). */
@@ -339,8 +342,17 @@
     /* Tronçons du jeu de données écartés car leur tracé fait un aller-retour inutile :
        Paris Austerlitz → Saint-Denis-lès-Martel passe par Brive, descend ~25 km au sud puis le trajet remonte vers Brive. */
     const TRONCONS_EXCLUS = new Set(["87547000-87594572"]);
+    /* Tronçons absents du jeu de données, ajoutés à la main (tracé OpenStreetMap, raccordé aux tracés Train Nomade voisins).
+       Mantes-la-Jolie → Versailles-Chantiers (TGV Normandie – Sud-Est) : ligne de Paris au Havre jusqu'à Épône-Mézières,
+       ligne de Plaisir-Grignon à Épône-Mézières, puis ligne de Saint-Cyr à Surdon. Sans lui, le tracé faisait un détour par Évreux, Lisieux et Dreux. */
+    const TRONCONS_AJOUTES = [
+      { troncon_id: "87381509-87393009", code_uic_a: "87381509", gare_a: "Mantes-la-Jolie", code_uic_b: "87393009", gare_b: "Versailles Chantiers", longueur_m: 44200, vitesse_max_kmh: 120,
+        coordinates: [[1.70301,48.98933],[1.7067,48.98797],[1.71225,48.98489],[1.7147,48.98374],[1.72787,48.97876],[1.73312,48.97587],[1.73768,48.97252],[1.74022,48.97101],[1.74835,48.96752],[1.75265,48.96613],[1.75733,48.96511],[1.76039,48.96462],[1.76416,48.96418],[1.76988,48.96375],[1.77589,48.96351],[1.79794,48.96309],[1.80478,48.96312],[1.81174,48.96351],[1.81702,48.96406],[1.82182,48.96483],[1.82217,48.964],[1.82399,48.9635],[1.82662,48.9625],[1.82822,48.96167],[1.8294,48.96086],[1.83102,48.95929],[1.83204,48.95771],[1.83526,48.94791],[1.83589,48.94646],[1.83814,48.94318],[1.84114,48.93767],[1.84417,48.93363],[1.84658,48.92934],[1.84977,48.92245],[1.85145,48.91767],[1.85389,48.91247],[1.85485,48.91124],[1.85624,48.91002],[1.86249,48.90606],[1.86502,48.90398],[1.86612,48.90245],[1.87182,48.89311],[1.87659,48.87385],[1.87661,48.87227],[1.87639,48.87122],[1.87445,48.86747],[1.87414,48.8657],[1.87433,48.86446],[1.87594,48.85895],[1.87662,48.85744],[1.87895,48.85444],[1.88026,48.85332],[1.88204,48.85232],[1.88879,48.84909],[1.89034,48.84801],[1.89143,48.84686],[1.89481,48.84178],[1.89623,48.84047],[1.89796,48.83949],[1.9003,48.83865],[1.9127,48.83527],[1.91534,48.83467],[1.91796,48.83426],[1.92479,48.83351],[1.95313,48.83115],[1.97906,48.83049],[1.98109,48.8303],[1.98305,48.82991],[1.98537,48.82915],[1.98743,48.82811],[1.98891,48.82706],[1.99251,48.82389],[1.9939,48.82303],[1.99559,48.82227],[2.03221,48.80883],[2.03567,48.80799],[2.04417,48.80666],[2.04702,48.8058],[2.04943,48.80449],[2.05229,48.80197],[2.05596,48.79931],[2.05803,48.79828],[2.06054,48.79759],[2.06269,48.79734],[2.06473,48.79737],[2.06634,48.79757],[2.07159,48.79855],[2.07335,48.79865],[2.07526,48.79857],[2.07726,48.7983],[2.07906,48.79787],[2.08516,48.79548],[2.08691,48.79499],[2.08862,48.79467],[2.09051,48.7945],[2.09201,48.7945],[2.10348,48.79565],[2.10594,48.79564],[2.10829,48.7952],[2.11245,48.79365],[2.11499,48.793],[2.12386,48.79196],[2.1259,48.79204],[2.128,48.79241],[2.13006,48.79311],[2.13329,48.79462],[2.13558,48.79519]] }
+    ];
     function buildGraph(gj) {
       gj = { ...gj, features: gj.features.filter(f => !TRONCONS_EXCLUS.has(f.properties.troncon_id)) };
+      const have = new Set(gj.features.map(f => f.properties.troncon_id));
+      for (const { coordinates, ...p } of TRONCONS_AJOUTES) if (!have.has(p.troncon_id)) gj.features.push({ type: "Feature", properties: p, geometry: { type: "LineString", coordinates } });
       G.feats = gj.features; G.adj.clear(); G.names.clear(); G.nname.clear(); G.coord.clear(); G.cache.clear();
       gj.features.forEach((f, i) => {
         const p = f.properties, c = f.geometry.coordinates, w = p.longueur_m / Math.max(p.vitesse_max_kmh, 30);   // temps ≈ longueur / vitesse max
@@ -442,14 +454,28 @@
       }
       return null;
     }
-    function gRoute(A, B, classic = false) {
-      if (classic) return gSearch(A, B, true) || gSearch(A, B, false);
+    /* start : gare du graphe d'où partir (fin du tronçon précédent), pour enchaîner les étapes sans saut entre deux gares d'une même ville */
+    function gRoute(A, B, classic = false, start = null) {
+      if (classic) return gSearch(A, B, true, start) || gSearch(A, B, false, start);
       const v = viaFor(A, B);
-      if (v) { const s1 = gSearch(A, v, false), s2 = gSearch(v, B, false); if (s1 && s2) return [...s1, ...s2]; }
-      return gSearch(A, B, false);
+      if (v) { const s1 = gSearch(A, v, false, start), s2 = s1 && gSearch(v, B, false, segEnd(s1)); if (s1 && s2) return [...s1, ...s2]; }
+      return gSearch(A, B, false, start);
     }
-    function gSearch(A, B, classic) {
-      const S = gNodes(A), T = new Set(gNodes(B)); if (!S.length || !T.size) return null;
+    /* Gare du graphe où arrive une suite de tronçons */
+    const segEnd = segs => { if (!segs?.length) return null; const { i, from } = segs[segs.length - 1], p = G.feats[i].properties; return from === p.code_uic_a ? p.code_uic_b : p.code_uic_a; };
+    /* Tracé d'un train passant par ses arrêts, dans l'ordre : A → arrêt 1 → arrêt 2 → … → B.
+       Un arrêt absent du graphe (ou injoignable) est ignoré ; null si l'arrivée elle-même est injoignable. */
+    function gRouteVia(A, stops, B, classic) {
+      const segs = []; let cur = A, start = null;
+      for (const w of [...stops, B]) {
+        const s = gRoute(cur, w, classic, start);
+        if (!s) { if (w === B) return null; continue; }
+        segs.push(...s); cur = w; start = segEnd(s) || start;
+      }
+      return segs;
+    }
+    function gSearch(A, B, classic, start = null) {
+      const S = start ? [start] : gNodes(A), T = new Set(gNodes(B)); if (!S.length || !T.size) return null;
       const dist = new Map(S.map(k => [k, 0])), prev = new Map(), h = new Heap(); S.forEach(k => h.push([0, k]));
       while (h.size) {
         const [d, u] = h.pop(); if (d > dist.get(u)) continue;
@@ -837,7 +863,7 @@
         g.beginPath(); g.moveTo(12, 19.5); g.lineTo(10.6, 21.6); g.moveTo(18, 19.5); g.lineTo(19.4, 21.6); g.stroke();
       });
     }
-    const PILL_COL = { TGV: "#12926b", OUIGO: "#e5398a", IC: "#d9822b", ICN: "#6c4ab6", "": "#a9b4bf" };
+    const PILL_COL = { TGV: "#14837a", OUIGO: "#c55a86", IC: "#c08a3e", ICN: "#5b62b3", "": "#a9b4bf" };
     function addImages() {
       if (!map.hasImage("gare-tgv")) map.addImage("gare-tgv", tgvImage(), { pixelRatio: PR });
     }
@@ -858,8 +884,11 @@
       /* Épaisseurs selon le zoom (m = facteur : 1 au zoom 4, 1.5 au zoom 8, 2.2 au zoom 12) */
       const Z = f => ["interpolate", ["linear"], ["zoom"], 4, f(1), 8, f(1.5), 12, f(2.2)];
       const mine = (a, b = 0) => is(pathOf === sel ? 0 : ["case", vOk, a, 0], b);   // trajet sélectionné (variante affichée) / les autres
+      /* Trajet sélectionné : les autres trajets sont masqués (filtre : ils ne sont ni dessinés ni cliquables) */
+      const only = f => sel ? ["all", f, ["==", ["get", "name"], sel]] : f;
+      for (const [l, f] of [["lines-glow", IS_LINE], ["lines-casing", ["all", IS_LINE, ["!", IS_CONN]]], ["lines", ["!", IS_CONN]], ["lines-conn", IS_CONN]]) map.setFilter(l, only(f));
       for (const l of ["lines", "lines-conn"]) {
-        map.setPaintProperty(l, "line-opacity", sel ? mine(1, .1) : .92);
+        map.setPaintProperty(l, "line-opacity", sel ? mine(1) : .92);
         map.setPaintProperty(l, "line-width", Z(m => sel ? is(2.8 * m, .9 * m) : (l === "lines" ? 1.6 : 2) * m));
       }
       map.setPaintProperty("lines-casing", "line-opacity", sel ? mine(.95) : .75);
@@ -868,13 +897,14 @@
       map.setPaintProperty("lines-glow", "line-width", Z(m => 9 * m));
       /* Gares de correspondance : seulement celles du trajet sélectionné (et de la variante choisie) */
       for (const l of ["via-pts", "via-label"]) if (map.getLayer(l)) map.setFilter(l, ["all", ["==", ["get", "via"], true], ["==", ["get", "name"], sel || ""], vOk]);
-      map.setPaintProperty("pts", "circle-opacity", sel ? is(1, .2) : 1);
-      map.setPaintProperty("pts", "circle-stroke-opacity", sel ? is(1, .2) : 1);
-      map.setPaintProperty("pts", "circle-radius", ["interpolate", ["linear"], ["zoom"], 4, sel ? is(5.5, 2.6) : 3.8, 8, sel ? is(6.5, 3) : 4.6, 12, sel ? is(8, 3.6) : 5.6]);
-      map.setPaintProperty("pts", "circle-stroke-width", sel ? is(2.8, 1.6) : 2.2);
+      /* Trajet sélectionné : les autres destinations sont masquées (points et étiquettes), seule la sienne reste */
+      for (const l of ["pts", "pts-label"]) if (map.getLayer(l)) map.setFilter(l, sel ? ["all", IS_PT, ["==", ["get", "name"], sel]] : IS_PT);
+      map.setPaintProperty("pts", "circle-radius", ["interpolate", ["linear"], ["zoom"], 4, sel ? 5.5 : 3.8, 8, sel ? 6.5 : 4.6, 12, sel ? 8 : 5.6]);
+      map.setPaintProperty("pts", "circle-stroke-width", sel ? 2.8 : 2.2);
       map.setLayoutProperty("movers", "icon-size", sel ? is(1.1, .7) : .85);
-      if (map.getLayer("pts-label")) { map.setPaintProperty("pts-label", "text-opacity", sel ? is(1, .25) : 1); map.setPaintProperty("pts-label", "icon-opacity", sel ? is(1, .25) : 1); }
-      map.setPaintProperty("movers", "icon-opacity", sel ? is(1, .25) : 1);
+      map.setPaintProperty("movers", "icon-opacity", sel ? is(1, 0) : 1);
+      /* Réseau des gares SNCF (couche facultative) : masqué aussi pendant une sélection */
+      for (const l of RAIL_LAYERS.gares) if (map.getLayer(l)) map.setLayoutProperty(l, "visibility", railVis("gares"));
       document.querySelectorAll("#list li").forEach(li => li.classList.toggle("sel", li.dataset.n === sel));
     }
     function focusRoute(n) {
@@ -942,7 +972,7 @@
       map.addLayer({ id: "lgv-casing", type: "line", source: "lgv", layout: { visibility: vis, "line-join": "round" }, paint: { "line-color": T.casing, "line-width": ["case", fast, 5, 3], "line-opacity": .8 } });
       map.addLayer({ id: "lgv", type: "line", source: "lgv", layout: { visibility: vis, "line-join": "round" }, paint: { "line-color": ["case", fast, "#c0392b", "#7f8c8d"], "line-width": ["case", fast, 2.2, 1.2] } });
       /* Gares voyageurs : petits points discrets à petite échelle, gares TGV mises en avant, noms au zoom (fonds vectoriels) */
-      const gvis = RAIL.gares ? "visible" : "none", tgv = ["get", "tgv"];
+      const gvis = railVis("gares"), tgv = ["get", "tgv"];
       map.addSource("gares", { type: "geojson", data: garesData });
       addImages();
       /* Gares : petits points discrets ; les gares TGV deviennent une icône dès le zoom 7 (le point reste, invisible, pour le clic) */
@@ -1014,7 +1044,7 @@
       map.addLayer({ id: "lines", type: "line", source: "routes", filter: ["!", isConn], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 1.6, "line-opacity": .92 } });
       /* Correspondances : pointillés ronds */
       map.addLayer({ id: "lines-conn", type: "line", source: "routes", filter: isConn, layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 2, "line-opacity": .92, "line-dasharray": [0.2, 2] } });
-      const isPt = ["all", ["==", ["geometry-type"], "Point"], ["!=", ["get", "via"], true]], isVia = ["==", ["get", "via"], true];
+      const isPt = IS_PT, isVia = ["==", ["get", "via"], true];
       /* Gares de correspondance : petit point cerclé de sombre, affichées seulement pour le trajet sélectionné (filtre posé par applyHighlight) */
       map.addLayer({ id: "via-pts", type: "circle", source: "routes", filter: isVia, paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 3.4, 10, 5], "circle-color": T.paper, "circle-stroke-width": 2, "circle-stroke-color": T.ink } });
       if (font) map.addLayer({
@@ -1045,15 +1075,15 @@
       map.addSource("stops", { type: "geojson", data: stopsData });
       map.addLayer({
         id: "stops-pts", type: "circle", source: "stops",
-        paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 2.2, 10, 3.4], "circle-color": T.paper, "circle-stroke-color": T.stopStroke, "circle-stroke-width": 1.3 }
+        paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 3.4, 10, 5], "circle-color": T.paper, "circle-stroke-color": T.ink, "circle-stroke-width": 2 }
       }, "via-pts");
       if (font) map.addLayer({
         id: "stops-label", type: "symbol", source: "stops",
         layout: {
-          "text-field": ["get", "label"], "text-font": ["literal", italic], "text-size": ["interpolate", ["linear"], ["zoom"], 5, 10, 10, 11.5],
+          "text-field": ["get", "label"], "text-font": ["literal", italic], "text-size": ["interpolate", ["linear"], ["zoom"], 5, 11.5, 10, 13],
           "text-letter-spacing": .02, "text-variable-anchor": ["right", "left", "top", "bottom"], "text-radial-offset": .55, "text-optional": true
         },
-        paint: { "text-color": T.ink2, "text-halo-color": T.halo, "text-halo-width": 1.5, "text-halo-blur": .4 }
+        paint: { "text-color": T.ink, "text-halo-color": T.halo, "text-halo-width": 2, "text-halo-blur": .2 }
       }, "via-pts");
     }
     /* Pastilles créées à la demande d'après leur nom : « pill-TGV3.OUIGO2 » (types et nombres de trains), « pill-TGV.IC » (sans bulle), « pill- » (complet) */
@@ -1306,6 +1336,31 @@
       originMarker = new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat(xy).addTo(map);
     }
 
+    /* Apparition des trajets : chaque ligne se dessine de la gare de départ vers la gare d'arrivée (coordonnées déjà dans ce sens),
+       toutes au même rythme relatif, en ~1,6 s. Les gares (points) sont affichées d'emblée. */
+    let growId = 0;
+    function growRoutes(fc) {
+      const id = ++growId, src = () => map.getSource("routes");
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) { src()?.setData(fc); return; }
+      const lines = fc.features.map(f => f.geometry.type === "LineString" ? cumul(f.geometry.coordinates) : null);
+      const cut = (coords, cum, p) => {
+        const d = cum[cum.length - 1] * p; let i = 1;
+        while (i < cum.length && cum[i] < d) i++;
+        if (i >= cum.length) return coords;
+        const [x1, y1] = coords[i - 1], [x2, y2] = coords[i], t = (d - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1);
+        return [...coords.slice(0, i), [x1 + (x2 - x1) * t, y1 + (y2 - y1) * t]];
+      };
+      const t0 = performance.now(), DUR = 1600;
+      const frame = now => {
+        if (id !== growId || routesData !== fc) return;   // nouveau rendu ou réinitialisation entre-temps
+        const k = Math.min(1, (now - t0) / DUR), p = (1 - Math.cos(Math.PI * k)) / 2;   // progression régulière, juste adoucie au départ et à l'arrivée
+        src()?.setData(k >= 1 ? fc : { type: "FeatureCollection", features: fc.features.map((f, j) => lines[j]
+          ? { ...f, geometry: { type: "LineString", coordinates: cut(f.geometry.coordinates, lines[j], Math.max(p, .001)) } } : f) });
+        if (k < 1) requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    }
+
     async function render() {
       const wanted = $("dest").value, full = $("full").checked, ks = $("kind").value;
       const g = curG = withConn(group(), false, ks), gb = curGB = rDate ? withConn(group(back, true), true, ks) : null;
@@ -1349,7 +1404,7 @@
       if (o) bounds.extend(o);
       setOriginMarker(o);
       routesData = { type: "FeatureCollection", features: feats };
-      map.getSource("routes")?.setData(routesData);
+      growRoutes(routesData);
       if (feats.length) map.fitBounds(bounds, { padding: 60, maxZoom: 8 });
       items.sort((a, b) => b.ok - a.ok || a.name.localeCompare(b.name));
       /* Itinéraire avec correspondance : heure de départ suivie de la (des) gare(s) de changement */
@@ -1372,13 +1427,15 @@
         + (rDate ? ` à l'aller (${frDate(qDate)}) et au retour (${frDate(rDate)}).` : ".") + (lost.length ? ` Non localisées sur la carte : ${lost.join(", ")}.` : "");
     }
 
-    function setPath(name) {
+    /* legs / per : trains réellement empruntés et leurs arrêts intermédiaires (voir trainStops) ; le tracé passe alors par chaque arrêt */
+    function setPath(name, legs = null, per = null) {
       const r = routes.find(r => r.name === name);
       pathData = { type: "FeatureCollection", features: [] }; pathOf = null;
       const v = curVar(r);
       if (v && G.ready) {
         /* Tracé étape par étape, pour connaître la distance où se fait chaque correspondance (v.bounds, en km) */
-        const parts = v.steps.map(([A, B, c]) => gRoute(A, B, c));
+        let parts = per && legs ? legs.map((l, i) => gRouteVia(l.from, per[i] || [], l.to, isIC(l))) : null;
+        if (!parts?.every(p => p?.length)) parts = v.steps.map(([A, B, c]) => gRoute(A, B, c));
         if (parts.every(p => p?.length)) {
           const g = pathGeo(parts.flat()); pathData.features = g.feats; v.coords = g.coords; v.cum = cumul(g.coords); pathOf = name;
           let n = 0; v.bounds = parts.map(p => v.cum[(n += pathGeo(p).coords.length) - 1]);
@@ -1389,7 +1446,7 @@
     /* ---------- Arrêts intermédiaires ----------
        Le jeu de données contient une ligne par couple de gares desservies par un même train : toutes les lignes d'un numéro de train
        donnent donc ses arrêts (heure de départ ou d'arrivée à chaque gare). Requête à la demande, gardée en mémoire par date et train. */
-    let stopsData = EMPTY_FC, stopsReq = 0;
+    let stopsData = EMPTY_FC, stopsReq = 0, pathReq = 0;
     const STOPC = new Map();
     function fetchTrains(date, nos) {
       const key = n => `${date}|${n}`, miss = nos.filter(n => !STOPC.has(key(n)));
@@ -1403,14 +1460,12 @@
       return Promise.all(nos.map(n => STOPC.get(key(n)))).then(a => a.flat());
     }
     /* legs : trains effectivement empruntés (un par tronçon d'itinéraire). Arrêts = gares desservies strictement entre la montée et la descente. */
-    async function setStops(legs) {
-      const id = ++stopsReq;
-      stopsData = EMPTY_FC; map.getSource("stops")?.setData(stopsData);
-      if (!legs.length || !qDate) return null;
+    /* Par train : gares desservies entre la montée et la descente, dans l'ordre de passage (null si indisponible) */
+    async function trainStops(legs) {
+      if (!legs?.length || !qDate) return null;
       const nos = [...new Set(legs.map(l => String(l.no)))];
       let rows; try { rows = await fetchTrains(qDate, nos); } catch { return null; }
-      /* Par train : gares desservies entre la montée et la descente, dans l'ordre de passage */
-      const per = legs.map(l => {
+      return legs.map(l => {
         const d0 = mins(l.dep), D = durMin(l), at = new Map();
         for (const r of rows) {
           if (String(r[F.train]) !== String(l.no)) continue;
@@ -1422,6 +1477,12 @@
         }
         return [...at].sort((a, b) => a[1] - b[1]).map(([n]) => n);
       });
+    }
+    async function setStops(legs) {
+      const id = ++stopsReq;
+      stopsData = EMPTY_FC; map.getSource("stops")?.setData(stopsData);
+      const per = await trainStops(legs);
+      if (!per || id !== stopsReq) return null;
       const names = new Set(per.flat());
       await geocodeMissing([...names]);
       if (id !== stopsReq) return null;   // un autre trajet a été choisi entre-temps
@@ -1449,6 +1510,18 @@
       popup?.remove(); $("list").querySelector(".detail")?.remove();
       selected = name; setPath(name); applyHighlight(); launch(name, chosen ? (chosen.legs || [chosen]).map(l => l.kind) : null);
       const stopsP = setStops(chosen && pathOf === name ? chosen.legs || [chosen] : []);
+      /* Le tracé doit passer par les arrêts réels : celui du train choisi, sinon du premier train de la variante tracée */
+      const v0 = curVar(routes.find(r => r.name === name)), ref = chosen || (v0 && t.find(x => vkey(x) === v0.key));
+      const req = ++pathReq;
+      if (ref && pathOf === name) {
+        const legs = ref.legs || [ref];
+        (chosen ? stopsP : trainStops(legs)).then(per => {
+          if (!per || req !== pathReq || selected !== name) return;
+          setPath(name, legs, per);
+          const f = $("list").querySelector(".detail .pfoot");
+          if (f && pathOf === name) f.textContent = `Tracé réel : ${pathData.features.length} tronçon(s), jusqu'à ${Math.max(...pathData.features.map(f => f.properties.v))} km/h`;
+        });
+      }
       /* Train de nuit choisi : le mode nuit s'active ; il se désactive si c'était automatique et que le train choisi n'est plus de nuit */
       const isNight = !!chosen && (chosen.legs || [chosen]).some(l => l.kind === "ICN");
       if (isNight) setNight(true, true); else if (nightAuto) setNight(false, true);
@@ -1648,7 +1721,9 @@
     };
     /* Sélecteur de cartes Carte facile : fonds + surcouches. On y ajoute nos deux couches (tronçons, gares)
        sous forme de cartes identiques à celles des surcouches de Carte facile. */
-    const RAIL = { lgv: false, gares: false };   // masquées par défaut ; activables dans le sélecteur de cartes
+    const RAIL = { lgv: false, gares: false };
+    /* Visibilité d'une couche facultative : les gares SNCF sont masquées tant qu'un trajet est sélectionné */
+    function railVis(id) { return RAIL[id] && !(id === "gares" && selected) ? "visible" : "none"; }   // masquées par défaut ; activables dans le sélecteur de cartes
     const RAIL_LAYERS = { lgv: ["lgv", "lgv-casing"], gares: ["gares", "gares-tgv", "gares-label"] };
     const svgThumb = body => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#eef1f4"/>${body}</svg>`);
     const RAIL_CARDS = [
@@ -1664,7 +1739,7 @@
           const card = this._createCard(`rail-${id}`, title, thumb, "overlay", () => {
             RAIL[id] = !RAIL[id];
             card.classList.toggle("active", RAIL[id]); card.setAttribute("aria-checked", String(RAIL[id]));
-            RAIL_LAYERS[id].forEach(l => map.getLayer(l) && map.setLayoutProperty(l, "visibility", RAIL[id] ? "visible" : "none"));
+            RAIL_LAYERS[id].forEach(l => map.getLayer(l) && map.setLayoutProperty(l, "visibility", railVis(id)));
           });
           card.classList.toggle("active", RAIL[id]); card.setAttribute("aria-checked", String(RAIL[id]));
           list.insertBefore(card, first);
