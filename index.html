@@ -40,6 +40,8 @@
         </svg>
         <span class="brand-txt">Max Jeune <b>Tracker</b><small>Places MAX JEUNE disponibles, sur la carte</small></span>
       </h1>
+      <!-- Formulaire de recherche : masqué pendant l'affichage des résultats (classe « res » sur <body>) -->
+      <div id="form">
       <label for="date-btn">Date du voyage</label>
       <!-- Calendrier maison (même style que les infobulles) ; la valeur AAAA-MM-JJ reste dans #date -->
       <input type="hidden" id="date">
@@ -116,6 +118,15 @@
       <div class="chk"><input type="checkbox" id="full"><label for="full">Afficher aussi les trains
           complets</label></div>
       <button id="go">Afficher les trajets</button>
+      </div>
+      <!-- Récapitulatif de la recherche, affiché à la place du formulaire avec les résultats -->
+      <div id="recap" hidden>
+        <div id="recap-txt"></div>
+        <button type="button" id="back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+          Retour à la recherche
+        </button>
+      </div>
     </header>
     <div id="status">Choisissez une date et une gare de départ.</div>
     <div id="legend"><span><i style="background:#12926b"></i>TGV INOUI</span><span><i style="background:#e5398a"></i>OUIGO</span><span><i
@@ -555,18 +566,29 @@
     /* Étiquette des destinations : pastille blanche arrondie, ombre douce, point de couleur du type de train.
        Seule la partie centrale s'étire (stretchX/Y) pour s'adapter au nom de la gare. */
     const PILL = { M: 4, H: 24, L: 22, R: 12 };
-    function pillImage(color) {
-      const { M, H, L, R } = PILL, W = L + 2 + R;
-      return canvasImg(W + 2 * M, H + 2 * M, g => {
+    /* Avec n (nombre de trains disponibles) : petite bulle de notification de la couleur du train, en haut à gauche de la pastille.
+       La marge haute et gauche (B) est agrandie pour que la bulle déborde de la pastille sans être coupée. */
+    const BADGE = { B: 9, r: 8.5 };
+    function pillImage(color, n) {
+      const { M, H, L, R } = PILL, W = L + 2 + R, X = n ? BADGE.B : M, Y = n ? BADGE.B : M;
+      return canvasImg(W + X + M, H + Y + M, g => {
         g.shadowColor = "rgba(27,42,58,.22)"; g.shadowBlur = 5; g.shadowOffsetY = 1.5;
-        rrect(g, M, M, W, H, H / 2); g.fillStyle = "#fff"; g.fill();
+        rrect(g, X, Y, W, H, H / 2); g.fillStyle = "#fff"; g.fill();
         g.shadowColor = "transparent"; g.lineWidth = 1; g.strokeStyle = "rgba(27,42,58,.10)"; g.stroke();
-        g.beginPath(); g.arc(M + 12, M + H / 2, 4, 0, 7); g.fillStyle = color; g.fill();
+        g.beginPath(); g.arc(X + 12, Y + H / 2, 4, 0, 7); g.fillStyle = color; g.fill();
+        if (!n) return;
+        const t = n > 99 ? "99+" : String(n), cx = X + 1, cy = Y + 1;
+        g.font = "700 10px 'Segoe UI', system-ui, sans-serif";
+        const w = Math.max(2 * BADGE.r, g.measureText(t).width + 8);
+        g.shadowColor = "rgba(27,42,58,.3)"; g.shadowBlur = 3; g.shadowOffsetY = 1;
+        rrect(g, cx - w / 2, cy - BADGE.r, w, 2 * BADGE.r, BADGE.r); g.fillStyle = color; g.fill();
+        g.shadowColor = "transparent"; g.lineWidth = 1.5; g.strokeStyle = "#fff"; g.stroke();
+        g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(t, cx, cy + .5);
       });
     }
-    function pillOpts() {
-      const { M, H, L } = PILL, W = L + 2 + PILL.R;
-      return { pixelRatio: PR, stretchX: [[(M + L) * PR, (M + L + 2) * PR]], stretchY: [[(M + H / 2 - 1) * PR, (M + H / 2 + 1) * PR]], content: [(M + L - 2) * PR, (M + 5) * PR, (M + W - 10) * PR, (M + H - 5) * PR] };
+    function pillOpts(n) {
+      const { M, H, L } = PILL, W = L + 2 + PILL.R, X = n ? BADGE.B : M, Y = n ? BADGE.B : M;
+      return { pixelRatio: PR, stretchX: [[(X + L) * PR, (X + L + 2) * PR]], stretchY: [[(Y + H / 2 - 1) * PR, (Y + H / 2 + 1) * PR]], content: [(X + L - 2) * PR, (Y + 5) * PR, (X + W - 10) * PR, (Y + H - 5) * PR] };
     }
     /* Gare TGV : carré arrondi bleu, liseré blanc, pictogramme de train */
     function tgvImage() {
@@ -582,8 +604,9 @@
         g.beginPath(); g.moveTo(12, 19.5); g.lineTo(10.6, 21.6); g.moveTo(18, 19.5); g.lineTo(19.4, 21.6); g.stroke();
       });
     }
+    const PILL_COL = { TGV: "#12926b", OUIGO: "#e5398a", IC: "#d9822b", ICN: "#6c4ab6", "": "#a9b4bf" };
     function addImages() {
-      for (const [k, c] of [["TGV", "#12926b"], ["OUIGO", "#e5398a"], ["IC", "#d9822b"], ["ICN", "#6c4ab6"], ["", "#a9b4bf"]])
+      for (const [k, c] of Object.entries(PILL_COL))
         if (!map.hasImage("pill-" + k)) map.addImage("pill-" + k, pillImage(c), pillOpts());
       if (!map.hasImage("gare-tgv")) map.addImage("gare-tgv", tgvImage(), { pixelRatio: PR });
     }
@@ -695,7 +718,9 @@
         id: "pts-label", type: "symbol", source: "routes", filter: ["==", ["geometry-type"], "Point"],
         layout: {
           "text-field": ["get", "label"], "text-font": ["literal", bold], "text-size": ["interpolate", ["linear"], ["zoom"], 4, 11.5, 8, 12.5, 12, 14],
-          "icon-image": ["concat", "pill-", ["coalesce", ["get", "kind"], ""]], "icon-text-fit": "both", "icon-text-fit-padding": [0, 0, 0, 0],
+          "icon-image": ["case", [">", ["coalesce", ["get", "n"], 0], 0],
+            ["concat", "pill-", ["coalesce", ["get", "kind"], ""], "-", ["to-string", ["get", "n"]]],
+            ["concat", "pill-", ["coalesce", ["get", "kind"], ""]]], "icon-text-fit": "both", "icon-text-fit-padding": [0, 0, 0, 0],
           "text-variable-anchor-offset": ["left", [1.9, 0], "right", [-1.3, 0], "top", [0, 1.5], "bottom", [0, -1.5]],
           "text-justify": "auto", "symbol-sort-key": ["case", ["get", "ok"], 0, 1], "text-padding": 3, "icon-padding": 3
         },
@@ -705,6 +730,11 @@
       map.addLayer({ id: "path-casing", type: "line", source: "path", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#1b2a3a", "line-width": 8, "line-opacity": .55 } }, "pts");
       map.addLayer({ id: "path", type: "line", source: "path", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["interpolate", ["linear"], ["get", "v"], 30, "#440154", 100, "#3b528b", 160, "#21908d", 230, "#5dc863", 320, "#fde725"], "line-width": 5 } }, "pts");
     }
+    /* Pastilles avec bulle (« pill-TGV-3 ») : créées à la demande, une par type de train et nombre de trains */
+    map.on("styleimagemissing", e => {
+      const m = /^pill-(\w*)-(\d+)$/.exec(e.id);
+      if (m && !map.hasImage(e.id)) map.addImage(e.id, pillImage(PILL_COL[m[1]] || PILL_COL[""], +m[2]), pillOpts(true));
+    });
     map.on("style.load", () => { addOverlays(); addMovers(); applyHighlight(); });
     /* Seules les gares sont cliquables (pas les tronçons) */
     /* Le point et la pastille du nom ouvrent tous deux la fiche de la destination */
@@ -825,7 +855,7 @@
         const classic = (ok ? free : trains).every(t => t.kind === "IC" || t.kind === "ICN");
         const segs = G.ready ? gRoute(...ends(name), classic) : null, coords = segs?.length ? pathGeo(segs).coords : null;
         if (coords) feats.push({ type: "Feature", properties: { name, ok, kind }, geometry: { type: "LineString", coordinates: coords } });
-        feats.push({ type: "Feature", properties: { name, ok, kind, label: clean(name) }, geometry: { type: "Point", coordinates: c } });
+        feats.push({ type: "Feature", properties: { name, ok, kind, label: clean(name), n: ok ? free.length + (rfree?.length || 0) : 0 }, geometry: { type: "Point", coordinates: c } });
         const [a, b] = rev ? [c, o] : [o, c];
         routes.push(coords ? { name, a, b, ok, classic, coords, cum: cumul(coords) } : { name, a, b, ok, classic });
         bounds.extend(c); if (coords) for (const xy of coords) bounds.extend(xy);
@@ -947,9 +977,43 @@
         $("dest").disabled = false;
         if (!all.length) $("status").textContent = allO ? "Aucun train trouvé vers cette destination à cette date." : "Aucun train trouvé pour cette date et cette gare.";
         else render();
+        showResults(true);
       } catch (e) { $("status").textContent = e.message; }
       $("go").disabled = false;
     };
+    /* Résultats : le formulaire laisse la place à un récapitulatif et à la liste des trains */
+    function showResults(on) {
+      document.body.classList.toggle("res", on);
+      $("form").hidden = on; $("recap").hidden = !on;
+      if (!on) { $("go").focus(); return; }
+      const oText = $("origin").selectedOptions[0]?.text || "", dText = $("dest").selectedOptions[0]?.text || "";
+      const from = $("origin").value === ALL_O ? "Toutes les gares de départ" : clean(oText);
+      const to = $("dest").value ? clean(dText) : "Toutes les destinations";
+      const kind = $("kind").value ? ` · ${$("kind").selectedOptions[0].text}` : "";
+      const dates = $("ret").value ? `Aller ${frDate($("date").value)} · retour ${frDate($("ret").value)}` : `${frDate($("date").value)} · aller simple`;
+      $("recap-txt").innerHTML = `<b>${from} → ${to}</b><span>${dates}${kind}</span>`;
+    }
+    /* Retour à la recherche : on repart de zéro, comme à l'arrivée sur la page */
+    function resetAll() {
+      all = []; back = []; rDate = null; rev = false; dest0 = null; origin = null; originIata = null; qDate = null;
+      selected = null; routes = []; pathOf = null; popup?.remove(); popup = null;
+      routesData = { type: "FeatureCollection", features: [] }; pathData = { type: "FeatureCollection", features: [] };
+      map.getSource("routes")?.setData(routesData); map.getSource("path")?.setData(pathData);
+      setOriginMarker(null);
+      $("list").innerHTML = "";
+      $("status").textContent = "Choisissez une date et une gare de départ.";
+      /* Formulaire d'origine : aujourd'hui, pas de retour, Paris, toutes les destinations, tous les trains */
+      setDate("", "ret"); setDate(iso(today));
+      const p = [...$("origin").options].find(o => norm(o.text).startsWith("PARIS")) || $("origin").options[0];
+      if (p) p.selected = true;
+      $("kind").value = ""; $("full").checked = false;
+      $("dest").value = "";
+      $("origin").dispatchEvent(new Event("change"));   // reconstruit les destinations (toutes les gares) et met à jour les boutons
+      $("dest").dispatchEvent(new Event("change"));
+      $("search").classList.remove("open"); $("sq").value = ""; $("sres").innerHTML = "";
+      map.flyTo({ center: [2.5, 46.6], zoom: 5 });
+    }
+    $("back").onclick = () => { resetAll(); showResults(false); };
     $("full").onchange = $("kind").onchange = () => all.length && render();
     /* Changer de destination : simple filtre en mode normal ; nouvelle recherche si toutes les gares de départ sont demandées */
     $("dest").onchange = () => {
