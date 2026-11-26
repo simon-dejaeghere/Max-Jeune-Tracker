@@ -33,12 +33,12 @@ Code écrit à 100 % avec [Claude](https://claude.com/claude-code).
 - **Destination** : toutes les destinations, ou une gare précise.
 - **Mode inversé « Toutes les gares de départ »** : on choisit une destination et le site affiche toutes les gares d'où l'on peut s'y rendre.
 - **Bouton d'inversion** départ ⇄ destination.
-- **Filtre par type de train** : TGV INOUI, OUIGO, Intercités (jour), Intercités de nuit.
+- **Filtre par type de train** : TGV INOUI, Intercités (jour), Intercités de nuit.
 - **Option « Afficher aussi les trains complets »**.
 - Les trains du jour déjà partis sont retirés automatiquement.
 
 ### Résultats
-- Une fois la recherche lancée, le formulaire laisse la place à un **récapitulatif** et à la **liste des destinations**. Le bouton **« Retour à la recherche »** remet le site dans son état de départ.
+- Une fois la recherche lancée, le formulaire laisse la place à un **récapitulatif** et à la **liste des destinations**. Le bouton **« Retour à la recherche »** efface les résultats mais garde les choix de la recherche (dates, gares, type de train) pour pouvoir la modifier.
 - Pour chaque destination : nombre et horaires des trains disponibles (aller, et retour si demandé), types de trains.
 - **Fiche détaillée** au clic : la liste des trains avec places MAX JEUNE, avec pour chacun un lien vers **SNCF Connect** et vers **Trainline** (la recherche est copiée dans le presse-papiers pour Trainline).
 
@@ -63,7 +63,7 @@ Code écrit à 100 % avec [Claude](https://claude.com/claude-code).
 3. Facultatif : une **destination**, un **type de train**, ou l'affichage des trains complets.
 4. Cliquer sur **« Afficher les trajets »**.
 5. Cliquer sur une destination (dans la liste ou sur la carte) pour voir les trains et les liens de réservation.
-6. **« Retour à la recherche »** pour repartir de zéro.
+6. **« Retour à la recherche »** pour modifier la recherche (les dates et les gares choisies sont gardées).
 
 ---
 
@@ -144,6 +144,6 @@ SNCF, SNCF Voyageurs, SNCF Connect, MAX JEUNE, TGV INOUI, OUIGO et Intercités s
 ## Limites connues
 
 - Le jeu de données `tgvmax` est mis à jour plusieurs fois par jour, pas en temps réel : une place affichée peut déjà être épuisée. **Seule la disponibilité affichée sur SNCF Connect au moment de la réservation fait foi.**
-- Seuls les trains présents dans ce jeu de données apparaissent (TGV INOUI, OUIGO, Intercités ; pas les TER).
+- Seuls les trains présents dans ce jeu de données apparaissent : TGV INOUI et Intercités. **Les OUIGO n'y figurent pas** (ni les TER) : une place OUIGO à 0 € visible sur SNCF Connect n'apparaîtra donc pas sur le site.
 - Certaines petites gares peuvent ne pas être localisées sur la carte ; elles sont alors signalées dans le message d'état et restent visibles dans la liste.
 - Si aucun tracé n'est trouvé entre deux gares, seule la gare est affichée, sans trajet.

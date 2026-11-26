@@ -111,7 +111,6 @@
       <select id="kind">
         <option value="">Tous</option>
         <option value="TGV">TGV INOUI</option>
-        <option value="OUIGO">OUIGO</option>
         <option value="IC">Intercités (jour)</option>
         <option value="ICN">Intercités de nuit</option>
       </select>
@@ -129,7 +128,7 @@
       </div>
     </header>
     <div id="status">Choisissez une date et une gare de départ.</div>
-    <div id="legend"><span><i style="background:#12926b"></i>TGV INOUI</span><span><i style="background:#e5398a"></i>OUIGO</span><span><i
+    <div id="legend"><span><i style="background:#12926b"></i>TGV INOUI</span><span><i
           style="background:#d9822b"></i>Intercités</span><span><i style="background:#6c4ab6"></i>Intercités de
         nuit</span><span><i style="background:#a9b4bf"></i>Complet</span></div>
     <ul id="list"></ul>
@@ -164,7 +163,8 @@
           déposées de SNCF Voyageurs ou de ses filiales, citées ici à seule fin d'information. Trainline est une marque de Trainline plc.</p>
         <p><b>Fiabilité.</b> Les places MAX JEUNE affichées proviennent du jeu de données public « tgvmax », mis à jour par SNCF Voyageurs
           plusieurs fois par jour. Elles peuvent être inexactes ou déjà épuisées : seule la disponibilité affichée sur SNCF Connect au moment
-          de la réservation fait foi. Les conditions de l'abonnement MAX JEUNE sont celles publiées par SNCF Voyageurs.</p>
+          de la réservation fait foi. Les conditions de l'abonnement MAX JEUNE sont celles publiées par SNCF Voyageurs.
+          Les OUIGO ne figurent pas dans ce jeu de données : leurs éventuelles places à 0 € n'apparaissent donc pas ici.</p>
         <p><b>Sources des données.</b></p>
         <ul>
           <li>Disponibilités MAX JEUNE : SNCF Voyageurs, <a href="https://ressources.data.sncf.com/explore/dataset/tgvmax/" target="_blank" rel="noopener">portail open data SNCF</a>.</li>
@@ -274,7 +274,8 @@
     const KIND = { TGV: ["TGV INOUI", "#12926b"], OUIGO: ["OUIGO", "#e5398a"], IC: ["Intercités", "#d9822b"], ICN: ["Intercités de nuit", "#6c4ab6"] };
     const KCOL = ["match", ["get", "kind"], "TGV", "#12926b", "OUIGO", "#e5398a", "IC", "#d9822b", "ICN", "#6c4ab6", "#a9b4bf"];
     const overnight = x => { const m = h => { const [a, b] = h.split(":"); return +a * 60 + +b; }; const d = m(x.arr) - m(x.dep); return d < 0 && d + 1440 >= 270; };
-    /* Le jeu de données n'indique pas la marque : OUIGO est reconnu par son nom (entity/axe) ou ses numéros de train (76xx à 79xx). */
+    /* Le jeu de données tgvmax ne contient aujourd'hui aucun OUIGO (filtre et légende retirés). Reconnaissance gardée au cas où il en contiendrait :
+       par le nom (entity/axe) ou les numéros de train (76xx à 79xx). */
     const isOuigo = (x, t) => /OUIGO/.test(t) || /^7[6-9]\d\d$/.test(String(x.no || "").trim());
     const kindOf = x => {
       const t = fold(`${x.entity || ""} ${x.axe || ""}`), night = overnight(x) || t.includes("NUIT");
@@ -283,6 +284,8 @@
       if (/TGV|INOUI|EUROSTAR|LYRIA/.test(t)) return "TGV";
       return night ? "ICN" : "TGV";   // par défaut : TGV INOUI
     };
+    /* Nom de la pastille d'une destination : un segment par type disponible avec son nombre de trains (aller + retour) */
+    const pillId = (ok, free, rfree) => "pill-" + (!ok ? "" : Object.keys(KIND).map(k => [k, [...free, ...(rfree || [])].filter(t => t.kind === k).length]).filter(([, n]) => n).map(([k, n]) => k + n).join("."));
     const bestKind = free => ["TGV", "OUIGO", "IC", "ICN"].find(k => free.some(t => t.kind === k)) || "TGV";
     const norm = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\(.*?\)/g, "").replace(/[-']/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
     let GEO = {}; try { GEO = JSON.parse(localStorage.getItem("geoGares") || "{}"); } catch { }
@@ -308,7 +311,11 @@
     let tracesData = EMPTY_FC;   // couche « rails » : affichée directement depuis le GeoJSON
     const G = { ready: false, feats: [], adj: new Map(), names: new Map(), nname: new Map(), coord: new Map(), cache: new Map() };
     const nn = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/\(.*?\)/g, " ").replace(/\bSAINTE\b/g, "STE").replace(/\bSAINT\b/g, "ST").replace(/[^A-Z0-9]+/g, " ").trim();
+    /* Tronçons du jeu de données écartés car leur tracé fait un aller-retour inutile :
+       Paris Austerlitz → Saint-Denis-lès-Martel passe par Brive, descend ~25 km au sud puis le trajet remonte vers Brive. */
+    const TRONCONS_EXCLUS = new Set(["87547000-87594572"]);
     function buildGraph(gj) {
+      gj = { ...gj, features: gj.features.filter(f => !TRONCONS_EXCLUS.has(f.properties.troncon_id)) };
       G.feats = gj.features; G.adj.clear(); G.names.clear(); G.nname.clear(); G.coord.clear(); G.cache.clear();
       gj.features.forEach((f, i) => {
         const p = f.properties, c = f.geometry.coordinates, w = p.longueur_m / Math.max(p.vitesse_max_kmh, 30);   // temps ≈ longueur / vitesse max
@@ -555,6 +562,17 @@
       g.fillStyle = "#1b2a3a"; g.beginPath(); g.arc(13, 34, 3, 0, 7); g.arc(35, 34, 3, 0, 7); g.fill();
       return g.getImageData(0, 0, 48, 48);
     }
+    /* Wagon : même gabarit que la locomotive (48 px, caisse de x = 4 à 44), sans nez profilé */
+    function wagonIcon() {
+      const c = document.createElement("canvas"); c.width = c.height = 48;
+      const g = c.getContext("2d");
+      g.lineWidth = 3; g.strokeStyle = "#fff"; g.fillStyle = "#1f4e8c";
+      rrect(g, 5, 14, 38, 17, 3); g.stroke(); g.fill();
+      g.fillStyle = "#fff"; for (let x = 9; x < 40; x += 8) g.fillRect(x, 18, 5, 6);
+      g.fillStyle = "#12926b"; g.fillRect(5, 27, 38, 3);
+      g.fillStyle = "#1b2a3a"; g.beginPath(); g.arc(13, 34, 3, 0, 7); g.arc(35, 34, 3, 0, 7); g.fill();
+      return g.getImageData(0, 0, 48, 48);
+    }
     /* Images dessinées en canvas, en haute définition (pixelRatio 2) */
     const PR = 2;
     function canvasImg(w, h, draw) {
@@ -566,28 +584,51 @@
     /* Étiquette des destinations : pastille blanche arrondie, ombre douce, point de couleur du type de train.
        Seule la partie centrale s'étire (stretchX/Y) pour s'adapter au nom de la gare. */
     const PILL = { M: 4, H: 24, L: 22, R: 12 };
-    /* Avec n (nombre de trains disponibles) : petite bulle de notification de la couleur du train, en haut à gauche de la pastille.
-       La marge haute et gauche (B) est agrandie pour que la bulle déborde de la pastille sans être coupée. */
-    const BADGE = { B: 9, r: 8.5 };
-    function pillImage(color, n) {
-      const { M, H, L, R } = PILL, W = L + 2 + R, X = n ? BADGE.B : M, Y = n ? BADGE.B : M;
+    /* Le point est découpé en parts égales, une par type de train disponible (comme dans la liste).
+       Avec les nombres de trains : une petite bulle de notification par type, de sa couleur, alignées en haut à gauche de la pastille
+       (la dernière sur le coin, les autres vers la gauche). Les marges haute et gauche sont agrandies pour que les bulles ne soient pas coupées. */
+    const BADGE = { B: 9, r: 8.5, gap: 2 };
+    const badgeTxt = n => n > 99 ? "99+" : String(n);
+    const badgeW = (g, n) => Math.max(2 * BADGE.r, g.measureText(badgeTxt(n)).width + 8);
+    const BADGE_FONT = "700 10px 'Segoe UI', system-ui, sans-serif";
+    /* Marge gauche nécessaire pour la rangée de bulles */
+    function pillMargins(parts) {
+      const withN = parts.filter(p => p.n > 0);
+      if (!withN.length) return { X: PILL.M, Y: PILL.M, ws: [] };
+      const g = document.createElement("canvas").getContext("2d"); g.font = BADGE_FONT;
+      const ws = withN.map(p => badgeW(g, p.n)), left = ws.reduce((s, w) => s + w, 0) + BADGE.gap * (ws.length - 1) - ws[ws.length - 1] / 2;
+      return { X: Math.max(BADGE.B, Math.ceil(left + 4)), Y: BADGE.B, ws };
+    }
+    /* parts : [{ c: couleur, n: nombre de trains }] dans l'ordre des types */
+    function pillImage(parts) {
+      const { M, H, L, R } = PILL, W = L + 2 + R, { X, Y, ws } = pillMargins(parts);
       return canvasImg(W + X + M, H + Y + M, g => {
         g.shadowColor = "rgba(27,42,58,.22)"; g.shadowBlur = 5; g.shadowOffsetY = 1.5;
         rrect(g, X, Y, W, H, H / 2); g.fillStyle = "#fff"; g.fill();
         g.shadowColor = "transparent"; g.lineWidth = 1; g.strokeStyle = "rgba(27,42,58,.10)"; g.stroke();
-        g.beginPath(); g.arc(X + 12, Y + H / 2, 4, 0, 7); g.fillStyle = color; g.fill();
-        if (!n) return;
-        const t = n > 99 ? "99+" : String(n), cx = X + 1, cy = Y + 1;
-        g.font = "700 10px 'Segoe UI', system-ui, sans-serif";
-        const w = Math.max(2 * BADGE.r, g.measureText(t).width + 8);
-        g.shadowColor = "rgba(27,42,58,.3)"; g.shadowBlur = 3; g.shadowOffsetY = 1;
-        rrect(g, cx - w / 2, cy - BADGE.r, w, 2 * BADGE.r, BADGE.r); g.fillStyle = color; g.fill();
-        g.shadowColor = "transparent"; g.lineWidth = 1.5; g.strokeStyle = "#fff"; g.stroke();
-        g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(t, cx, cy + .5);
+        const dx = X + 12, dy = Y + H / 2, k = parts.length;
+        parts.forEach((p, j) => {
+          g.beginPath();
+          if (k > 1) { g.moveTo(dx, dy); g.arc(dx, dy, 4, -Math.PI / 2 + j * 2 * Math.PI / k, -Math.PI / 2 + (j + 1) * 2 * Math.PI / k); g.closePath(); }
+          else g.arc(dx, dy, 4, 0, 7);
+          g.fillStyle = p.c; g.fill();
+        });
+        const withN = parts.filter(p => p.n > 0);
+        if (!withN.length) return;
+        g.font = BADGE_FONT; g.textAlign = "center"; g.textBaseline = "middle";
+        const cy = Y + 1; let right = X + 1 + ws[ws.length - 1] / 2;
+        for (let j = withN.length - 1; j >= 0; j--) {
+          const w = ws[j], cx = right - w / 2;
+          g.shadowColor = "rgba(27,42,58,.3)"; g.shadowBlur = 3; g.shadowOffsetY = 1;
+          rrect(g, cx - w / 2, cy - BADGE.r, w, 2 * BADGE.r, BADGE.r); g.fillStyle = withN[j].c; g.fill();
+          g.shadowColor = "transparent"; g.lineWidth = 1.5; g.strokeStyle = "#fff"; g.stroke();
+          g.fillStyle = "#fff"; g.fillText(badgeTxt(withN[j].n), cx, cy + .5);
+          right -= w + BADGE.gap;
+        }
       });
     }
-    function pillOpts(n) {
-      const { M, H, L } = PILL, W = L + 2 + PILL.R, X = n ? BADGE.B : M, Y = n ? BADGE.B : M;
+    function pillOpts(parts) {
+      const { H, L } = PILL, W = L + 2 + PILL.R, { X, Y } = pillMargins(parts);
       return { pixelRatio: PR, stretchX: [[(X + L) * PR, (X + L + 2) * PR]], stretchY: [[(Y + H / 2 - 1) * PR, (Y + H / 2 + 1) * PR]], content: [(X + L - 2) * PR, (Y + 5) * PR, (X + W - 10) * PR, (Y + H - 5) * PR] };
     }
     /* Gare TGV : carré arrondi bleu, liseré blanc, pictogramme de train */
@@ -606,14 +647,13 @@
     }
     const PILL_COL = { TGV: "#12926b", OUIGO: "#e5398a", IC: "#d9822b", ICN: "#6c4ab6", "": "#a9b4bf" };
     function addImages() {
-      for (const [k, c] of Object.entries(PILL_COL))
-        if (!map.hasImage("pill-" + k)) map.addImage("pill-" + k, pillImage(c), pillOpts());
       if (!map.hasImage("gare-tgv")) map.addImage("gare-tgv", tgvImage(), { pixelRatio: PR });
     }
     function addMovers() {
       if (!map.hasImage("train")) map.addImage("train", trainIcon());
+      if (!map.hasImage("wagon")) map.addImage("wagon", wagonIcon());
       map.addSource("movers", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-      map.addLayer({ id: "movers", type: "symbol", source: "movers", layout: { "icon-image": "train", "icon-size": .85, "icon-rotate": ["get", "rot"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
+      map.addLayer({ id: "movers", type: "symbol", source: "movers", layout: { "icon-image": ["get", "icon"], "icon-size": .85, "icon-rotate": ["get", "rot"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } });
     }
     /* Met en avant le trajet sélectionné, estompe les autres */
     function applyHighlight() {
@@ -635,13 +675,14 @@
       const r = routes.find(r => r.name === n);
       if (r) { const b = new maplibregl.LngLatBounds(r.a, r.a).extend(r.b); (r.coords || []).forEach(xy => b.extend(xy)); map.fitBounds(b, { padding: 90, maxZoom: 8 }); }
     }
-    /* Animation : un petit train suit le tracé réel de la gare de départ à la destination, une seule fois par clic */
+    /* Animation : un petit train suit le tracé réel de la gare de départ à la destination, en boucle (courte pause à l'arrivée)
+       tant que le trajet reste sélectionné */
     let anims = [], shown = false;
+    const LOOP_PAUSE = 700, WAGONS = 3, CAR_PX = 44;   // nombre de wagons, longueur d'une voiture en pixels (à icon-size 1)
     const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
     function launch(name, delay = 0) {
       const r = routes.find(r => r.name === name); if (!r || !r.ok || !r.coords || REDUCE) return;
-      anims = anims.filter(a => a.r.name !== name);
-      anims.push({ r, start: performance.now() + delay, dur: 1800 + Math.min(r.cum[r.cum.length - 1], 900) * 3 });
+      anims = [{ r, start: performance.now() + delay, dur: 1800 + Math.min(r.cum[r.cum.length - 1], 900) * 3 }];
     }
     function pointAt(r, f) {
       const { coords, cum } = r, target = Math.max(0, Math.min(1, f)) * cum[cum.length - 1];
@@ -652,14 +693,23 @@
     function tick(now) {
       const src = map.getSource("movers");
       if (src && (anims.length || shown)) {
-        anims = anims.filter(a => now - a.start < a.dur);
+        anims = anims.filter(a => a.r.name === selected && routes.includes(a.r));   // arrêt dès que le trajet n'est plus sélectionné
         const feats = [];
         for (const a of anims) {
-          const t = (now - a.start) / a.dur; if (t < 0) continue;
+          const e = now - a.start; if (e < 0) continue;
+          const t = (e % (a.dur + LOOP_PAUSE)) / a.dur; if (t > 1) continue;   // pause à l'arrivée avant de repartir
           const f = t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-          const P = pointAt(a.r, f), A = pointAt(a.r, f - .02), B = pointAt(a.r, f + .02);
-          const rot = Math.atan2((B[0] - A[0]) * Math.cos((A[1] + B[1]) * Math.PI / 360), B[1] - A[1]) * 180 / Math.PI - 90;
-          feats.push({ type: "Feature", properties: { name: a.r.name, rot }, geometry: { type: "Point", coordinates: P } });
+          /* Locomotive en tête, puis les wagons à une longueur de voiture chacun, le long du tracé (ils suivent les courbes).
+             L'écart est converti de pixels en km selon le zoom ; un wagon pas encore sorti de la gare n'est pas affiché. */
+          const L = a.r.cum[a.r.cum.length - 1], head = pointAt(a.r, f);
+          const kmPx = 40075 * Math.cos(head[1] * Math.PI / 180) / (512 * 2 ** map.getZoom());
+          const gap = CAR_PX * (a.r.name === selected ? 1.1 : .85) * kmPx / L, d = Math.min(.02, gap / 2);
+          for (let k = WAGONS; k >= 0; k--) {
+            const fk = f - k * gap; if (fk < 0) continue;
+            const P = pointAt(a.r, fk), A = pointAt(a.r, fk - d), B = pointAt(a.r, fk + d);
+            const rot = Math.atan2((B[0] - A[0]) * Math.cos((A[1] + B[1]) * Math.PI / 360), B[1] - A[1]) * 180 / Math.PI - 90;
+            feats.push({ type: "Feature", properties: { name: a.r.name, rot, icon: k ? "wagon" : "train" }, geometry: { type: "Point", coordinates: P } });
+          }
         }
         src.setData({ type: "FeatureCollection", features: feats });
         shown = feats.length > 0;
@@ -718,9 +768,7 @@
         id: "pts-label", type: "symbol", source: "routes", filter: ["==", ["geometry-type"], "Point"],
         layout: {
           "text-field": ["get", "label"], "text-font": ["literal", bold], "text-size": ["interpolate", ["linear"], ["zoom"], 4, 11.5, 8, 12.5, 12, 14],
-          "icon-image": ["case", [">", ["coalesce", ["get", "n"], 0], 0],
-            ["concat", "pill-", ["coalesce", ["get", "kind"], ""], "-", ["to-string", ["get", "n"]]],
-            ["concat", "pill-", ["coalesce", ["get", "kind"], ""]]], "icon-text-fit": "both", "icon-text-fit-padding": [0, 0, 0, 0],
+          "icon-image": ["get", "pill"], "icon-text-fit": "both", "icon-text-fit-padding": [0, 0, 0, 0],
           "text-variable-anchor-offset": ["left", [1.9, 0], "right", [-1.3, 0], "top", [0, 1.5], "bottom", [0, -1.5]],
           "text-justify": "auto", "symbol-sort-key": ["case", ["get", "ok"], 0, 1], "text-padding": 3, "icon-padding": 3
         },
@@ -730,10 +778,12 @@
       map.addLayer({ id: "path-casing", type: "line", source: "path", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#1b2a3a", "line-width": 8, "line-opacity": .55 } }, "pts");
       map.addLayer({ id: "path", type: "line", source: "path", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["interpolate", ["linear"], ["get", "v"], 30, "#440154", 100, "#3b528b", 160, "#21908d", 230, "#5dc863", 320, "#fde725"], "line-width": 5 } }, "pts");
     }
-    /* Pastilles avec bulle (« pill-TGV-3 ») : créées à la demande, une par type de train et nombre de trains */
+    /* Pastilles créées à la demande d'après leur nom : « pill-TGV3.OUIGO2 » (types et nombres de trains), « pill-TGV.IC » (sans bulle), « pill- » (complet) */
     map.on("styleimagemissing", e => {
-      const m = /^pill-(\w*)-(\d+)$/.exec(e.id);
-      if (m && !map.hasImage(e.id)) map.addImage(e.id, pillImage(PILL_COL[m[1]] || PILL_COL[""], +m[2]), pillOpts(true));
+      if (!e.id.startsWith("pill-") || map.hasImage(e.id)) return;
+      const parts = e.id.slice(5).split(".").map(x => /^([A-Z]+)(\d*)$/.exec(x)).filter(Boolean).map(m => ({ c: PILL_COL[m[1]] || PILL_COL[""], n: +m[2] || 0 }));
+      const ps = parts.length ? parts : [{ c: PILL_COL[""], n: 0 }];
+      map.addImage(e.id, pillImage(ps), pillOpts(ps));
     });
     map.on("style.load", () => { addOverlays(); addMovers(); applyHighlight(); });
     /* Seules les gares sont cliquables (pas les tronçons) */
@@ -855,7 +905,7 @@
         const classic = (ok ? free : trains).every(t => t.kind === "IC" || t.kind === "ICN");
         const segs = G.ready ? gRoute(...ends(name), classic) : null, coords = segs?.length ? pathGeo(segs).coords : null;
         if (coords) feats.push({ type: "Feature", properties: { name, ok, kind }, geometry: { type: "LineString", coordinates: coords } });
-        feats.push({ type: "Feature", properties: { name, ok, kind, label: clean(name), n: ok ? free.length + (rfree?.length || 0) : 0 }, geometry: { type: "Point", coordinates: c } });
+        feats.push({ type: "Feature", properties: { name, ok, kind, label: clean(name), pill: pillId(ok, free, rfree) }, geometry: { type: "Point", coordinates: c } });
         const [a, b] = rev ? [c, o] : [o, c];
         routes.push(coords ? { name, a, b, ok, classic, coords, cum: cumul(coords) } : { name, a, b, ok, classic });
         bounds.extend(c); if (coords) for (const xy of coords) bounds.extend(xy);
@@ -904,13 +954,12 @@
       selected = name; setPath(name); applyHighlight(); launch(name);
       const ids = new Map([...t, ...(tb || [])].flatMap(x => [x.from, x.to]).map(n => [n, tlId(n)]));
       const dur = x => { const m = h => { const [a, b] = h.split(":"); return +a * 60 + +b; }; let d = m(x.arr) - m(x.dep); if (d < 0) d += 1440; return `${Math.floor(d / 60)}h${String(d % 60).padStart(2, "0")}`; };
-      /* Départ « ville (toutes les gares) » : on précise la gare de la ville concernée (départ à l'aller, arrivée au retour) */
-      const multi = originIata.includes(",");
       const rowsOf = (list, date, isBack) => list.map(x => {
         const o = ids.get(x.from), d = ids.get(x.to), k = KIND[x.kind];
         return `<div class="trow">
     <div class="ttime"><b>${x.dep}</b><span class="tdur">${dur(x)}</span><b>${x.arr}</b></div>
-    <div class="tmeta">${k ? `<span class="badge" style="background:${k[1]}">${k[0]}</span>` : ""}<span>Train ${x.no}</span>${multi ? `<span>${isBack ? `vers ${clean(x.to)}` : `depuis ${clean(x.from)}`}</span>` : ""}</div>
+    <div class="tst"><span>${clean(x.from)}</span><span>${clean(x.to)}</span></div>
+    <div class="tmeta">${k ? `<span class="badge" style="background:${k[1]}">${k[0]}</span>` : ""}<span>Train ${x.no}</span></div>
     <div class="tbtn"><a class="book" href="${sncfLink(x.oIata, x.dIata, date, x.dep)}" target="_blank" rel="noopener">SNCF Connect</a><a class="book alt" href="${trainlineLink(o, d, date, x.dep)}" target="_blank" rel="noopener"${o && d ? "" : ` data-q="${phrase(x.from, x.to, date, x.dep)}"`}>Trainline</a></div></div>`;
       }).join("") || `<div class="tempty">Aucune place MAX JEUNE ce jour-là.</div>`;
       const nTr = n => `<b>${n}</b> train${n > 1 ? "s" : ""}`;
@@ -993,7 +1042,8 @@
       const dates = $("ret").value ? `Aller ${frDate($("date").value)} · retour ${frDate($("ret").value)}` : `${frDate($("date").value)} · aller simple`;
       $("recap-txt").innerHTML = `<b>${from} → ${to}</b><span>${dates}${kind}</span>`;
     }
-    /* Retour à la recherche : on repart de zéro, comme à l'arrivée sur la page */
+    /* Retour à la recherche : on efface les résultats et la carte, mais le formulaire garde les choix de la recherche
+       (dates, gare de départ, destination, type de train, trains complets) pour pouvoir la modifier */
     function resetAll() {
       all = []; back = []; rDate = null; rev = false; dest0 = null; origin = null; originIata = null; qDate = null;
       selected = null; routes = []; pathOf = null; popup?.remove(); popup = null;
@@ -1002,13 +1052,7 @@
       setOriginMarker(null);
       $("list").innerHTML = "";
       $("status").textContent = "Choisissez une date et une gare de départ.";
-      /* Formulaire d'origine : aujourd'hui, pas de retour, Paris, toutes les destinations, tous les trains */
-      setDate("", "ret"); setDate(iso(today));
-      const p = [...$("origin").options].find(o => norm(o.text).startsWith("PARIS")) || $("origin").options[0];
-      if (p) p.selected = true;
-      $("kind").value = ""; $("full").checked = false;
-      $("dest").value = "";
-      $("origin").dispatchEvent(new Event("change"));   // reconstruit les destinations (toutes les gares) et met à jour les boutons
+      $("origin").dispatchEvent(new Event("change"));   // reconstruit les destinations (toutes les gares, choix conservé) et met à jour les boutons
       $("dest").dispatchEvent(new Event("change"));
       $("search").classList.remove("open"); $("sq").value = ""; $("sres").innerHTML = "";
       map.flyTo({ center: [2.5, 46.6], zoom: 5 });

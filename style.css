@@ -963,6 +963,21 @@ header > select:focus {
     color: var(--ink)
 }
 
+/* Gares de départ et d'arrivée, en petit sous les horaires (départ à gauche, arrivée à droite) */
+.tst {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 1px;
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--mute)
+}
+
+.tst span:last-child {
+    text-align: right
+}
+
 .tdur {
     flex: 1;
     display: flex;
