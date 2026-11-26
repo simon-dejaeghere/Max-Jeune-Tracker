@@ -1365,76 +1365,56 @@
     [/^MARNE LA VALLEE/, "MLV"], [/^MASSY/, "MAS"], [/^VERSAILLES/, "VER"], [/^LILLE FLANDRES/, "LFL"], [/^LILLE EUROPE/, "LEU"],
     [/^LYON PART DIEU/, "LPD"], [/^LYON PERRACHE/, "LPE"], [/^AVIGNON TGV/, "AVT"], [/^AVIGNON CENTRE/, "AVC"], [/^TOURS$/, "TRS"],
     [/^ST PIERRE DES CORPS/, "SPC"], [/^MARSEILLE ST CHARLES/, "MSC"], [/^MARSEILLE BLANCARDE/, "MBL"]];
+    /* Hors Île-de-France : conseils valables dans les deux sens */
     const XHOW = {
-      "PN|PE": "À pied, ~10 min.",
-      "PN|PL": "RER D direct jusqu'à Gare de Lyon, ~10 min.",
-      "PN|PB": "RER D jusqu'à Gare de Lyon, puis métro 14 (1 station) ou 10 min à pied.",
-      "PN|PA": "Métro 5 direct jusqu'à Gare d'Austerlitz, ~25 min.",
-      "PN|PM": "Métro 4 direct jusqu'à Montparnasse-Bienvenüe, ~25 min.",
-      "PN|PMV": "Métro 4 direct jusqu'à Montparnasse-Bienvenüe (~25 min), puis hall 3 Vaugirard (~10 min à pied).",
-      "PN|PSL": "RER E de Magenta (relié à Gare du Nord) à Haussmann–Saint-Lazare, ~10 min.",
-      "PE|PL": "Métro 5 jusqu'à Bastille, puis métro 1 jusqu'à Gare de Lyon, ~20 min.",
-      "PE|PB": "Métro 5 jusqu'à Bastille, métro 1 jusqu'à Gare de Lyon, puis métro 14 (1 station), ~25 min.",
-      "PE|PA": "Métro 5 direct jusqu'à Gare d'Austerlitz, ~20 min.",
-      "PE|PM": "Métro 4 direct jusqu'à Montparnasse-Bienvenüe, ~25 min.",
-      "PE|PMV": "Métro 4 direct jusqu'à Montparnasse-Bienvenüe (~25 min), puis hall 3 Vaugirard (~10 min à pied).",
-      "PE|PSL": "À pied jusqu'à Magenta (~5 min), puis RER E jusqu'à Haussmann–Saint-Lazare.",
-      "PL|PB": "Métro 14 (1 station) ou ~10 min à pied.",
-      "PL|PA": "À pied par le pont Charles-de-Gaulle, ~10 min.",
-      "PL|PM": "Métro 14 jusqu'à Châtelet, puis métro 4 jusqu'à Montparnasse-Bienvenüe (~25 min), ou bus 91 direct.",
-      "PL|PMV": "Métro 14 jusqu'à Châtelet, métro 4 jusqu'à Montparnasse-Bienvenüe, puis hall 3 Vaugirard (~10 min à pied).",
-      "PL|PSL": "Métro 14 direct jusqu'à Saint-Lazare, ~10 min.",
-      "PB|PA": "Métro 14 jusqu'à Gare de Lyon (1 station), puis 10 min à pied par le pont Charles-de-Gaulle.",
-      "PB|PM": "Métro 6 direct jusqu'à Montparnasse-Bienvenüe, ~25 min.",
-      "PB|PMV": "Métro 6 direct jusqu'à Montparnasse-Bienvenüe (~25 min), puis hall 3 Vaugirard (~10 min à pied).",
-      "PB|PSL": "Métro 14 direct jusqu'à Saint-Lazare, ~12 min.",
-      "PA|PM": "Métro 5 jusqu'à Place d'Italie, puis métro 6 jusqu'à Montparnasse-Bienvenüe (~25 min), ou bus 91 direct.",
-      "PA|PMV": "Métro 5 jusqu'à Place d'Italie, métro 6 jusqu'à Montparnasse-Bienvenüe, puis hall 3 Vaugirard (~10 min à pied).",
-      "PA|PSL": "À pied jusqu'à Gare de Lyon par le pont Charles-de-Gaulle (~10 min), puis métro 14 direct.",
-      "PM|PMV": "Même gare : le hall 3 (Vaugirard) est à ~10 min à pied des halls 1 et 2.",
-      "PM|PSL": "Métro 13 direct jusqu'à Saint-Lazare, ~15 min.",
-      "PMV|PSL": "Hall 3 → Montparnasse-Bienvenüe (~10 min à pied), puis métro 13 direct jusqu'à Saint-Lazare.",
-      "CDG|PN": "RER B direct jusqu'à Gare du Nord, ~35 min.",
-      "CDG|PE": "RER B jusqu'à Gare du Nord, puis 10 min à pied.",
-      "CDG|PL": "RER B jusqu'à Châtelet–Les Halles, puis RER A ou D jusqu'à Gare de Lyon, ~45 min.",
-      "CDG|PB": "RER B jusqu'à Châtelet–Les Halles, puis métro 14 jusqu'à Bercy, ~50 min.",
-      "CDG|PA": "RER B jusqu'à Gare du Nord, puis métro 5 direct, ~1 h.",
-      "CDG|PM": "RER B jusqu'à Denfert-Rochereau, puis métro 4 ou 6 jusqu'à Montparnasse-Bienvenüe, ~1 h.",
-      "CDG|PSL": "RER B jusqu'à Gare du Nord, puis RER E depuis Magenta, ~50 min.",
-      "CDG|MLV": "RER B jusqu'à Châtelet–Les Halles, puis RER A direction Marne-la-Vallée, ~1h15.",
-      "CDG|MAS": "RER B direct direction Saint-Rémy-lès-Chevreuse (arrêt Massy-Palaiseau, à 5 min à pied de Massy TGV), ~1h10.",
-      "MLV|PL": "RER A direct jusqu'à Gare de Lyon, ~35 min.",
-      "MLV|PB": "RER A jusqu'à Gare de Lyon, puis métro 14 (1 station) ou 10 min à pied.",
-      "MLV|PA": "RER A jusqu'à Gare de Lyon, puis 10 min à pied par le pont Charles-de-Gaulle.",
-      "MLV|PN": "RER A jusqu'à Châtelet–Les Halles, puis RER B ou D jusqu'à Gare du Nord, ~45 min.",
-      "MLV|PE": "RER A jusqu'à Châtelet–Les Halles, RER B ou D jusqu'à Gare du Nord, puis 10 min à pied.",
-      "MLV|PM": "RER A jusqu'à Châtelet–Les Halles, puis métro 4 jusqu'à Montparnasse-Bienvenüe, ~1 h.",
-      "MLV|PSL": "RER A jusqu'à Auber, puis couloir à pied vers Saint-Lazare (~5 min).",
-      "MLV|MAS": "RER A jusqu'à Châtelet–Les Halles, puis RER B direction Saint-Rémy-lès-Chevreuse (arrêt Massy-Palaiseau), ~1h15.",
-      "MAS|PN": "RER B direct depuis Massy-Palaiseau (5 min à pied de Massy TGV) jusqu'à Gare du Nord, ~45 min.",
-      "MAS|PE": "RER B depuis Massy-Palaiseau jusqu'à Gare du Nord, puis 10 min à pied.",
-      "MAS|PL": "RER B depuis Massy-Palaiseau jusqu'à Châtelet–Les Halles, puis RER A ou D jusqu'à Gare de Lyon.",
-      "MAS|PB": "RER B depuis Massy-Palaiseau jusqu'à Châtelet–Les Halles, puis métro 14 jusqu'à Bercy.",
-      "MAS|PA": "RER C direct depuis Massy-Palaiseau jusqu'à Paris Austerlitz, ~35 min.",
-      "MAS|PM": "RER B depuis Massy-Palaiseau jusqu'à Denfert-Rochereau, puis métro 4 ou 6 jusqu'à Montparnasse-Bienvenüe.",
-      "MAS|PSL": "RER B depuis Massy-Palaiseau jusqu'à Châtelet–Les Halles, puis métro 14 jusqu'à Saint-Lazare.",
-      "MAS|MAS": "Massy TGV et Massy-Palaiseau sont voisines : ~5 min à pied.",
-      "VER|PM": "Transilien N direct jusqu'à Paris Montparnasse, ~15 min.",
-      "VER|MAS": "Ligne V directe de Versailles-Chantiers à Massy-Palaiseau (5 min à pied de Massy TGV), ~25 min.",
       "LFL|LEU": "À pied, ~10 min (ou métro 2, 1 station).",
       "LPD|LPE": "Tram T1 direct, ~20 min.",
       "AVT|AVC": "TER navette direct (« virgule »), ~5 min.",
       "TRS|SPC": "Navette TER directe, ~5 min.",
       "MBL|MSC": "TER direct (~5 min) ou métro 1."
     };
+    /* Île-de-France : le conseil est écrit à partir des étapes de XPATH, dans le sens du trajet (a → b) ; XNOTE complète ou remplace
+       (liaisons à pied, autres possibilités) */
+    const XNOTE = {
+      "PN|PE": "À pied, ~10 min.", "PL|PA": "À pied par le pont Charles-de-Gaulle, ~10 min.",
+      "PM|PMV": "Même gare : le hall 3 (Vaugirard) est à ~10 min à pied des halls 1 et 2.",
+      "MAS|MAS": "Massy TGV et Massy-Palaiseau sont voisines : ~5 min à pied.",
+      "PL|PB": "Ou ~10 min à pied.", "PL|PM": "Ou bus 91 direct.", "PA|PM": "Ou bus 91 direct."
+    };
+    /* Stations IDFM situées dans (ou reliées à) chaque gare SNCF : ailleurs, une liaison à pied est indiquée */
+    const XST = {
+      PN: ["Gare du Nord", "Magenta"], PE: ["Gare de l'Est"], PL: ["Gare de Lyon"], PB: ["Bercy"], PA: ["Gare d'Austerlitz", "Paris Austerlitz"],
+      PM: ["Montparnasse-Bienvenüe", "Montparnasse"], PMV: [], PSL: ["Saint-Lazare", "Haussmann-Saint-Lazare"], CDG: ["Aéroport Charles De Gaulle 2-TGV"],
+      MLV: ["Marne-la-Vallée-Chessy"], MAS: ["Massy-Palaiseau"], VER: ["Versailles-Chantiers"]
+    };
+    /* Pastilles des lignes, aux couleurs officielles (Île-de-France Mobilités) : M + numéro dans un rond, RER / Train + lettre dans un carré */
+    const LINE_COL = {
+      "METRO 1": "#ffbe00", "METRO 4": "#a0006e", "METRO 5": "#ff5a00", "METRO 6": "#82dc73", "METRO 13": "#82c8e6", "METRO 14": "#640082",
+      "RER A": "#eb2132", "RER B": "#5091cb", "RER C": "#ffcc30", "RER D": "#008b5b", "RER E": "#b94e9a", "TRAIN N": "#00b297", "TRAIN V": "#9f9825"
+    };
+    const inkOn = hex => { const n = parseInt(hex.slice(1), 16), L = (.299 * (n >> 16) + .587 * (n >> 8 & 255) + .114 * (n & 255)) / 255; return L > .6 ? "#1b1b1b" : "#fff"; };
+    function lineBadge(line) {
+      const [mode, id] = line.split(" "), c = LINE_COL[line] || "#6b7a8a", k = mode === "METRO" ? "m" : mode === "RER" ? "rer" : "tr";
+      const lab = mode === "METRO" ? "M" : mode === "RER" ? "RER" : "Train";
+      return `<span class="ln ln-${k}" title="${lineLabel(line)}"><i>${lab}</i><b style="background:${c};color:${inkOn(c)}">${id}</b></span>`;
+    }
     const xid = n => XID.find(([re]) => re.test(nn(n || "")))?.[1];
+    /* Comment aller de la gare a à la gare b (HTML), dans ce sens */
     function xferHow(a, b) {
       const x = xid(a), y = xid(b); if (!x || !y) return null;
-      const get = (p, q) => XHOW[`${p}|${q}`] || XHOW[`${q}|${p}`];
-      let h = get(x, y);
-      /* Versailles ↔ autre gare parisienne : Transilien N jusqu'à Montparnasse, puis le trajet depuis Montparnasse */
-      if (!h && (x === "VER" || y === "VER")) { const o = x === "VER" ? y : x, m = o !== "PM" && get("PM", o); if (m) h = `Transilien N jusqu'à Paris Montparnasse (~15 min), puis ${m[0].toLowerCase()}${m.slice(1)}`; }
-      return h || null;
+      const note = XNOTE[`${x}|${y}`] || XNOTE[`${y}|${x}`] || "";
+      const steps = xferSteps(x, y);
+      if (!steps) return XHOW[`${x}|${y}`] || XHOW[`${y}|${x}`] || null;
+      if (!steps.length) return note || "À pied.";
+      const at = (code, s) => (XST[code] || []).some(n => nn(n) === nn(s)), parts = [];
+      if (!at(x, steps[0][1])) parts.push(`à pied jusqu'à ${steps[0][1]}`);
+      steps.forEach(([line, s, e], i) => {
+        if (i && s !== steps[i - 1][2]) parts.push(`correspondance à pied jusqu'à ${s}`);
+        parts.push(`${lineBadge(line)} jusqu'à ${e}`);
+      });
+      if (!at(y, steps[steps.length - 1][2])) parts.push(`à pied jusqu'à ${clean(b)}`);
+      const txt = parts.join(", puis ");
+      return `${txt[0] === "<" ? txt : txt[0].toUpperCase() + txt.slice(1)}.${note ? ` ${note}` : ""}`;
     }
     /* Lien d'itinéraire en transports en commun entre deux gares (Google Maps) */
     const xferLink = (a, b) => `https://www.google.com/maps/dir/?api=1&travelmode=transit&origin=${encodeURIComponent(`Gare ${clean(a)}`)}&destination=${encodeURIComponent(`Gare ${clean(b)}`)}`;
