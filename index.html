@@ -369,10 +369,12 @@
       G.ready = true;
       tracesData = gj; map.getSource("lgv")?.setData(gj);
     }
+    /* Noms du jeu de données SNCF (normalisés) → nom de la gare dans les tracés ferroviaires, quand ils diffèrent trop pour être rapprochés */
+    const G_ALIAS = { "AEROPORT ROISSY CDG 2 TGV": "AEROPORT CHARLES DE GAULLE 2 TGV" };
     /* Gares du graphe correspondant à un nom du jeu de données : nom exact, sinon toutes les gares de la ville, sinon la gare au nom le plus proche, sinon la plus proche (≤ 15 km) */
     function gNodes(name) {
       if (!G.ready) return [];
-      const n = nn(name); if (G.cache.has(n)) return G.cache.get(n);
+      const n = G_ALIAS[nn(name)] || nn(name); if (G.cache.has(n)) return G.cache.get(n);
       const all = [...G.nname]; let r = all.filter(([, v]) => v === n);
       if (!r.length) r = all.filter(([, v]) => v.startsWith(n + " "));
       /* Tous les mots significatifs du nom dans celui de la gare du graphe (au moins deux) : « LE CREUSOT MONTCEAU MONTCHANIN »
@@ -380,6 +382,12 @@
       if (!r.length) {
         const want = n.split(" ").filter(t => t.length > 1 && !STOP.has(t));
         if (want.length >= 2) r = all.filter(([, v]) => { const tk = new Set(v.split(" ")); return want.every(t => tk.has(t)); });
+      }
+      /* Gare TGV : la gare TGV de la même ville (nom avant « TGV »), et non la gare du centre au nom plus court :
+         « VALENCE TGV AUVERGNE RHONE ALPES » → « Valence TGV Rhône-Alpes Sud », et non « Valence » */
+      if (!r.length && /\bTGV\b/.test(n)) {
+        const city = n.split(/\s*\bTGV\b/)[0].trim();
+        if (city) r = all.filter(([, v]) => (v === city || v.startsWith(city + " ")) && /\bTGV\b/.test(v));
       }
       if (!r.length) { const m = all.filter(([, v]) => n.startsWith(v + " ")), L = Math.max(0, ...m.map(([, v]) => v.length)); r = m.filter(([, v]) => v.length === L); }
       let out = r.map(([k]) => k);
