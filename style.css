@@ -963,18 +963,30 @@ header > select:focus {
     color: var(--ink)
 }
 
-/* Gares de départ et d'arrivée, en petit sous les horaires (départ à gauche, arrivée à droite) */
+/* Gares de départ et d'arrivée, en petit sous les horaires (départ à gauche, arrivée à droite).
+   Chaque nom reste sur une ligne : si les deux ne tiennent pas côte à côte (téléphone), l'arrivée passe
+   à la ligne suivante, toujours alignée à droite ; un nom plus large que la carte est tronqué (…). */
 .tst {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
-    gap: 12px;
+    gap: 0 12px;
     margin-top: 1px;
     font-size: 11px;
-    line-height: 1.3;
+    line-height: 1.35;
     color: var(--mute)
 }
 
+.tst span {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis
+}
+
 .tst span:last-child {
+    margin-left: auto;
     text-align: right
 }
 
