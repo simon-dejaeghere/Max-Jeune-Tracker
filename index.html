@@ -56,6 +56,15 @@
         <span id="date-txt"></span>
         <svg class="dp-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
       </button>
+      <!-- Plage horaire de départ de l'aller (heure de départ du premier train) : vide = sans limite.
+           Chaque borne s'ouvre sur un cadran d'horloge (#tp) : on choisit l'heure, puis les minutes. -->
+      <label for="tmin-btn">Heure de départ <span class="opt">facultatif</span></label>
+      <div class="trange">
+        <span>entre</span>
+        <input type="hidden" id="tmin"><button type="button" id="tmin-btn" class="dp-btn tp-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="tp" aria-label="Départ de l'aller au plus tôt"></button>
+        <span>et</span>
+        <input type="hidden" id="tmax"><button type="button" id="tmax-btn" class="dp-btn tp-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="tp" aria-label="Départ de l'aller au plus tard"></button>
+      </div>
       <!-- Date du retour : facultative (vide = aller simple) ; même calendrier que l'aller -->
       <label for="ret-btn">Date du retour <span class="opt">facultatif</span></label>
       <input type="hidden" id="ret">
@@ -64,6 +73,32 @@
         <span id="ret-txt"></span>
         <svg class="dp-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
       </button>
+      <!-- Plage horaire de départ du retour : affichée seulement avec une date de retour -->
+      <div id="rtime" hidden>
+        <label for="rmin-btn">Heure de départ du retour <span class="opt">facultatif</span></label>
+        <div class="trange">
+          <span>entre</span>
+          <input type="hidden" id="rmin"><button type="button" id="rmin-btn" class="dp-btn tp-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="tp" aria-label="Départ du retour au plus tôt"></button>
+          <span>et</span>
+          <input type="hidden" id="rmax"><button type="button" id="rmax-btn" class="dp-btn tp-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="tp" aria-label="Départ du retour au plus tard"></button>
+        </div>
+      </div>
+      <!-- Cadran d'horloge (même style que le calendrier) : heures 0–11 sur l'anneau extérieur, 12–23 à l'intérieur, puis minutes -->
+      <div id="tp" class="dp-pop tp-pop" role="dialog" aria-labelledby="tp-sub" hidden>
+        <div class="pop-head dp-head">
+          <div class="dp-title">
+            <div class="psub" id="tp-sub"></div>
+            <div class="tp-read"><button type="button" class="tp-seg" id="tp-h" aria-label="Choisir l'heure"></button><span>:</span><button type="button" class="tp-seg" id="tp-m" aria-label="Choisir les minutes"></button></div>
+          </div>
+        </div>
+        <div class="pop-body dp-body tp-body">
+          <svg id="tp-dial" class="tp-dial" viewBox="0 0 240 240" tabindex="0" role="slider" aria-label="Cadran"></svg>
+          <div class="tp-foot">
+            <button type="button" id="tp-clear" class="tp-act">Indifférent</button>
+            <button type="button" id="tp-ok" class="tp-act ok">OK</button>
+          </div>
+        </div>
+      </div>
       <div id="dp" class="dp-pop" role="dialog" aria-labelledby="dp-sub" hidden>
         <div class="pop-head dp-head">
           <div class="dp-title"><div class="psub" id="dp-sub">Date du voyage</div><div class="ptitle" id="dp-month"></div></div>
@@ -113,13 +148,19 @@
         <div class="dp-foot" id="dd-foot"></div>
         </div>
       </div>
-      <label for="kind">Type de train</label>
-      <select id="kind">
-        <option value="">Tous</option>
-        <option value="TGV">TGV INOUI</option>
-        <option value="IC">Intercités (jour)</option>
-        <option value="ICN">Intercités de nuit</option>
-      </select>
+      <!-- Filtres secondaires, repliés par défaut pour garder le bouton de recherche à portée ; la pastille compte les filtres actifs -->
+      <details id="more">
+        <summary><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+          <span>Plus de filtres</span><em id="more-n" hidden></em>
+          <svg class="dp-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+        <div class="more-body">
+      <!-- Types de train : plusieurs choix possibles (tous cochés = pas de filtre ; au moins un reste coché) -->
+      <div class="lbl" id="kind-l">Types de train</div>
+      <div id="kind" class="kchips" role="group" aria-labelledby="kind-l">
+        <label class="kchip"><input type="checkbox" value="TGV" checked><i style="background:#14837a"></i>TGV INOUI</label>
+        <label class="kchip"><input type="checkbox" value="IC" checked><i style="background:#c08a3e"></i>Intercités</label>
+        <label class="kchip"><input type="checkbox" value="ICN" checked><i style="background:#5b62b3"></i>Intercités de nuit</label>
+      </div>
       <!-- Correspondances : 0 = trajets directs seulement ; 1 ou 2 = itinéraires avec changement(s) de train, chaque train ayant des places MAX JEUNE -->
       <label for="corr">Correspondances</label>
       <select id="corr">
@@ -127,24 +168,30 @@
         <option value="1">Jusqu'à 1 correspondance</option>
         <option value="2">Jusqu'à 2 correspondances</option>
       </select>
-      <!-- Attente maximale à chaque correspondance (en heures, vide = sans limite) : affiché seulement si des correspondances sont demandées -->
+      <!-- Attente maximale à chaque correspondance : jauge de 30 min à 6 h, tout à droite = sans limite ; affiché seulement si des correspondances sont demandées -->
       <div id="wait-f" hidden>
-        <label for="wait">Attente max. en correspondance</label>
-        <select id="wait">
-          <option value="">Sans limite</option>
-          <option value="1">1 h</option>
-          <option value="2">2 h</option>
-          <option value="3">3 h</option>
-          <option value="4">4 h</option>
-          <option value="5">5 h</option>
-        </select>
+        <label for="wait">Attente max. en correspondance <span class="opt">facultatif</span></label>
+        <div class="gauge-f">
+          <input type="range" class="gauge" id="wait" min="0.5" max="6" step="0.25" value="6" aria-describedby="wait-out">
+          <output id="wait-out" for="wait"></output>
+        </div>
+        <div class="gauge-scale" aria-hidden="true"><span style="--x:0">30 min</span><span style="--x:.2727">2 h</span><span style="--x:.6364">4 h</span><span style="--x:1">6 h</span></div>
       </div>
+      <!-- Durée maximale du trajet (aller et retour, correspondances comprises) : jauge de 1 h à 20 h, tout à droite = sans limite -->
+      <label for="dur">Durée max. du trajet <span class="opt">facultatif</span></label>
+      <div class="gauge-f">
+        <input type="range" class="gauge" id="dur" min="1" max="20" step="0.5" value="20" aria-describedby="dur-out">
+        <output id="dur-out" for="dur"></output>
+      </div>
+      <div class="gauge-scale" aria-hidden="true"><span style="--x:0">1 h</span><span style="--x:.2105">5 h</span><span style="--x:.4737">10 h</span><span style="--x:.7368">15 h</span><span style="--x:1">20 h</span></div>
       <!-- Changements de gare en transports en commun (métro, RER, navette…) : au départ, à l'arrivée ou entre deux trains,
            entre gares proches (ex. Paris Nord → Paris Gare de Lyon, Lille Flandres → Lille Europe) -->
       <div class="chk"><input type="checkbox" id="xfer" checked><label for="xfer">Autoriser les changements de gare
           (métro, RER…)</label></div>
       <div class="chk"><input type="checkbox" id="full"><label for="full">Afficher aussi les trains
           complets</label></div>
+        </div>
+      </details>
       <button id="go">Afficher les trajets</button>
       </div>
       <!-- Récapitulatif de la recherche, affiché à la place du formulaire avec les résultats -->
@@ -157,13 +204,14 @@
       </div>
     </header>
     <div id="status">Choisissez une date et une gare de départ.</div>
-    <div id="legend"><span><i style="background:#14837a"></i>TGV INOUI</span><span><i
-          style="background:#c08a3e"></i>Intercités</span><span><i style="background:#5b62b3"></i>Intercités de
-        nuit</span><span><i style="background:#a9b4bf"></i>Complet</span></div>
     <ul id="list"></ul>
   </aside>
   <div id="wrap">
     <div id="map"></div>
+    <!-- Légende des couleurs des trains, posée sur la carte -->
+    <div id="legend" aria-label="Légende"><span><i style="background:#14837a"></i>TGV INOUI</span><span><i
+          style="background:#c08a3e"></i>Intercités</span><span><i style="background:#5b62b3"></i>Intercités de
+        nuit</span><span><i style="background:#a9b4bf"></i>Complet</span></div>
     <div id="search">
       <button id="sbtn" title="Rechercher une gare" aria-label="Rechercher une gare"><svg width="18" height="18"
           viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
@@ -172,6 +220,12 @@
         </svg></button>
       <input id="sq" type="search" placeholder="Rechercher une gare…" autocomplete="off">
       <ul id="sres"></ul>
+    </div>
+    <!-- Indications en haut de la carte : ce qu'on peut faire à l'étape en cours (texte mis à jour par updHint) -->
+    <div id="mhint" role="status" aria-live="polite" hidden>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6M12 7.5v.01"/></svg>
+      <span id="mhint-txt"></span>
+      <button type="button" id="mhint-x" aria-label="Masquer l'indication" title="Masquer"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button>
     </div>
     <div id="speed"><b>Vitesse max du tronçon</b>
       <div class="bar"></div>
@@ -319,6 +373,11 @@
     };
     /* Nom de la pastille d'une destination : un segment par type disponible avec son nombre de trains (aller + retour) */
     const pillId = (ok, free, rfree) => "pill-" + (!ok ? "" : Object.keys(KIND).map(k => [k, [...free, ...(rfree || [])].filter(t => t.kind === k).length]).filter(([, n]) => n).map(([k, n]) => k + n).join("."));
+    /* Types de train cochés dans le formulaire : null = tous ; sinon un Set (« TGV », « IC », « ICN »).
+       Un itinéraire avec correspondance n'est gardé que si chacun de ses trains est d'un type coché. */
+    const kindBoxes = () => [...document.querySelectorAll("#kind input")];
+    const kindSet = () => { const b = kindBoxes(), on = b.filter(x => x.checked); return on.length === b.length ? null : new Set(on.map(x => x.value)); };
+    const kindOk = (t, ks) => !ks || (t.legs || [t]).every(l => ks.has(l.kind));
     const bestKind = free => ["TGV", "OUIGO", "IC", "ICN"].find(k => free.some(t => t.kind === k)) || "TGV";
     const norm = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\(.*?\)/g, "").replace(/[-']/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
     let GEO = {}; try { GEO = JSON.parse(localStorage.getItem("geoGares") || "{}"); } catch { }
@@ -581,6 +640,7 @@
       const x = DAYS.find(o => o.k === v);
       $(id + "-txt").innerHTML = !v ? "Pas de retour" : x && x.rel ? `<b>${x.label}</b>` : (x ? x.label : fmtLong(fromIso(v)));
       $(id + "-btn").classList.toggle("empty", !v);
+      if (id === "ret") $("rtime").hidden = !v;
       /* Le retour ne peut pas précéder l'aller */
       if (id === "date" && $("ret").value && $("ret").value < v) setDate("", "ret");
     }
@@ -597,6 +657,7 @@
       const pop = $("dp");
       $(DP.id + "-btn").setAttribute("aria-expanded", "false");
       if (!on) { pop.hidden = true; return; }
+      if (!$("tp").hidden) tpOpen(false);
       DP.id = id; dpRender();
       const r = $(id + "-btn").getBoundingClientRect();
       pop.style.left = `${r.left}px`; pop.style.top = `${r.bottom + 8}px`; pop.style.width = `${Math.max(r.width, 280)}px`;
@@ -720,10 +781,14 @@
     /* Variantes d'itinéraire d'une destination (« » = direct, sinon « Gare X › Gare Y » = gares de correspondance).
        selVar = variante choisie pour le trajet sélectionné (null = toutes affichées) */
     let selVar = null;
+    /* Même chose pour le retour : variante du retour choisie dans l'onglet « Retour » (null = toutes) */
+    let selBackVar = null;
     /* Train (ou itinéraire) choisi dans la fiche : selTrain = sa clé, trainVar = sa variante, tracée sur la carte avec ses arrêts */
     let selTrain = null, trainVar = null;
     /* Train (ou itinéraire) du retour choisi dans la fiche : selBack = sa clé ; backVar = son tracé (même forme qu'une variante, pour le petit train) */
     let selBack = null, backVar = null;
+    /* Aller-retour : onglet affiché dans la fiche (« out » = aller, « back » = retour) */
+    let detTab = "out";
     const tkey = x => `${x.no}|${x.dep}`;
     const effVar = () => selVar ?? trainVar;
     /* Clé = gares de correspondance + réseau de chaque train (« f » = TGV / OUIGO, qui peuvent emprunter les LGV ;
@@ -950,12 +1015,14 @@
       for (const l of RAIL_LAYERS.gares) if (map.getLayer(l)) map.setLayoutProperty(l, "visibility", railVis("gares"));
       document.querySelectorAll("#list li").forEach(li => li.classList.toggle("sel", li.dataset.n === sel));
     }
+    /* Marges du cadrage de la carte : en haut, on laisse aussi la place au bandeau d'indications */
+    const fitPad = p => ({ top: p + ($("mhint").hidden ? 0 : $("mhint").offsetHeight + 10), bottom: p, left: p, right: p });
     function focusRoute(n) {
       const r = routes.find(r => r.name === n);
       if (!r) return;
       const v = effVar() != null && curVar(r), b = new maplibregl.LngLatBounds(r.a, r.a).extend(r.b);
       for (const x of v ? [v] : r.vars) { (x.coords || []).forEach(xy => b.extend(xy)); x.steps.slice(1).forEach(([n]) => { const c = locate(n); if (c) b.extend(c); }); }
-      map.fitBounds(b, { padding: 90, maxZoom: 8 });
+      map.fitBounds(b, { padding: fitPad(90), maxZoom: 8 });
     }
     /* Animation : un petit train suit le tracé réel de la gare de départ à la destination, en boucle (courte pause à l'arrivée)
        tant que le trajet reste sélectionné */
@@ -1195,6 +1262,7 @@
         popup?.remove();
         $("origin").value = s.properties.v; $("origin").dispatchEvent(new Event("change"));
         $("status").textContent = `Départ : ${s.properties.name}. Choisissez une date puis lancez la recherche.`;
+        updHint(s.properties.name);
         return;
       }
       /* Clic sur l'une des variantes du trajet sélectionné (toutes affichées) : on ne garde qu'elle */
@@ -1351,6 +1419,12 @@
        Seul le dernier train peut arriver le lendemain (train de nuit). */
     const MIN_CORR = 15;
     let maxWait = Infinity;   // attente maximale à une correspondance, en minutes (choisie dans le formulaire)
+    /* Plages horaires de départ (aller, retour), en minutes, choisies dans le formulaire : s'appliquent au départ du premier train */
+    let depWin = [0, Infinity], retWin = [0, Infinity];
+    /* Durée maximale d'un trajet, en minutes (jauge du formulaire ; Infinity = sans limite) */
+    let maxDur = Infinity;
+    const durOk = x => durMin(x) <= maxDur;
+    const inWin = (h, w = depWin) => { const m = mins(String(h || "0:0")); return m >= w[0] && m <= w[1]; };
     const waitOk = (w, min = MIN_CORR) => w >= min && w <= maxWait;
     /* Changement de gare dans une même ville (Paris Nord → Paris Gare de Lyon, Lille Flandres → Lille Europe, Tours → Saint-Pierre-des-Corps…) :
        permis seulement entre gares à moins de XFER_KM à vol d'oiseau, donc pas vers une gare TGV excentrée
@@ -1580,7 +1654,7 @@
     function connections(day, starts, fwd, maxC, ks) {
       const S = new Set(starts), idx = new Map();
       for (const t of day) {
-        if (ks && t.kind !== ks) continue;
+        if (ks && !ks.has(t.kind)) continue;
         const k = fwd ? t.oIata : t.dIata; if (!idx.has(k)) idx.set(k, []); idx.get(k).push(t);
       }
       const end = L => fwd ? L.legs[L.legs.length - 1].dIata : L.legs[0].oIata;
@@ -1597,7 +1671,20 @@
       let layer = [];
       for (const s of S) for (const t of idx.get(s) || []) if (!S.has(fwd ? t.dIata : t.oIata)) { const L = mk([t]); add(L); layer.push(L); }
       for (let c = 1; c <= maxC; c++) {
-        const alive = layer.filter(L => fronts.get(end(L))?.includes(L)), next = [];
+        /* Itinéraires partiels à prolonger : sans attente max., seuls les non dominés (un autre arrivant plus tôt peut prendre
+           les mêmes trains suivants). Avec une attente max., arriver plus tôt peut faire rater la correspondance : on ne compare
+           alors que les itinéraires qui atteignent la gare de correspondance à la même heure (le meilleur de chaque groupe). */
+        let alive;
+        if (maxWait === Infinity) alive = layer.filter(L => fronts.get(end(L))?.includes(L));
+        else {
+          const best = new Map();
+          for (const L of layer) {
+            const k = `${end(L)}|${fwd ? L.arr : L.dep}`, b = best.get(k);
+            if (!b || (fwd ? L.dep > b.dep : L.arr < b.arr)) best.set(k, L);
+          }
+          alive = [...best.values()];
+        }
+        const next = [];
         for (const L of alive) {
           const seen = new Set([...L.legs.map(l => l.oIata), ...L.legs.map(l => l.dIata)]);
           if (fwd) {
@@ -1633,6 +1720,7 @@
       if (!nCorr) return g;
       const day = isBack ? dayBack : dayOut, m = new Map([...g].map(([n, l]) => [n, [...l]]));
       for (const its of connections(day, hubCodes, rev === isBack, nCorr, ks).values()) for (const it of its) {
+        if (!inWin(it.dep, isBack ? retWin : depWin) || !durOk(it)) continue;   // départ du premier train dans la plage horaire
         const n = tagXfer(it, isBack);   // départ / arrivée à une gare voisine : changement de gare noté, rangé sous la gare de référence
         if (!m.has(n)) m.set(n, []); m.get(n).push(it);
       }
@@ -1751,7 +1839,7 @@
     }
 
     async function render() {
-      const wanted = $("dest").value, full = $("full").checked, ks = $("kind").value;
+      const wanted = $("dest").value, full = $("full").checked, ks = kindSet();
       await garesReady.catch(() => { });
       /* Destination précise choisie : les trains arrivant à une gare voisine (ex. Paris Nord pour Paris Gare de Lyon) y sont rattachés,
          avec le changement de gare à l'arrivée (et au départ du retour) */
@@ -1765,11 +1853,11 @@
       const o = locate(hub());   // gare fixe : départ (mode normal) ou destination (toutes les gares de départ)
       for (const [name, all0] of g) {
         if (!rev && wanted && !wanted.split("|").includes(name)) continue;
-        const trains = ks ? all0.filter(t => t.kind === ks) : all0;
+        const trains = ks ? all0.filter(t => kindOk(t, ks)) : all0;
         if (!trains.length) continue;
         trains.sort((a, b) => a.dep.localeCompare(b.dep));
         /* Avec une date de retour, une gare n'est « disponible » que s'il reste des places à l'aller ET au retour */
-        const rfree0 = gb ? (gb.get(name) || []).filter(t => t.ok && (!ks || t.kind === ks)).sort((a, b) => a.dep.localeCompare(b.dep)) : null;
+        const rfree0 = gb ? (gb.get(name) || []).filter(t => t.ok && kindOk(t, ks)).sort((a, b) => a.dep.localeCompare(b.dep)) : null;
         const [free, rfree] = sameDay(trains.filter(t => t.ok), rfree0), ok = free.length > 0 && (!rfree || rfree.length > 0);
         /* Couleur de la gare (point et pastille) : type du train qui la dessert, c.-à-d. pour une correspondance le dernier train
            s'il y arrive, le premier s'il en part (et non le type le plus rapide de l'itinéraire) */
@@ -1802,7 +1890,7 @@
       routesData = { type: "FeatureCollection", features: feats };
       growRoutes(routesData);
       refineClassic(routesData, routes);
-      if (feats.length) map.fitBounds(bounds, { padding: 60, maxZoom: 8 });
+      if (feats.length) map.fitBounds(bounds, { padding: fitPad(60), maxZoom: 8 });
       items.sort((a, b) => b.ok - a.ok || a.name.localeCompare(b.name));
       /* Itinéraire avec correspondance : heure de départ suivie de la (des) gare(s) de changement */
       /* Heure de départ, avec la gare réelle si l'on change de gare avant (« depuis X ») ou après (« arrivée X ») */
@@ -1824,6 +1912,7 @@
       const nOk = items.filter(i => i.ok).length;
       $("status").textContent = (rev ? `${nOk} gare(s) de départ avec des places MAX JEUNE vers ${clean(dest0)}` : `${nOk} destination(s) avec des places MAX JEUNE`)
         + (rDate ? ` à l'aller (${frDate(qDate)}) et au retour (${frDate(rDate)}).` : ".") + (lost.length ? ` Non localisées sur la carte : ${lost.join(", ")}.` : "");
+      updHint();
     }
 
     /* legs / per : trains réellement empruntés et leurs arrêts intermédiaires (voir trainStops) ; le tracé passe alors par chaque arrêt */
@@ -1913,7 +2002,10 @@
     }
     function show(name, fromMap = false, keepVar = false) {
       const t0 = curG.get(name); if (!t0) return;
-      if (!keepVar || selected !== name) selVar = selTrain = trainVar = selBack = null;
+      /* Fiche déjà ouverte, simplement mise à jour (choix d'un train, d'une variante…) : rien ne doit bouger à l'écran */
+      const refresh = keepVar && selected === name && !fromMap;
+      const keepTop = $("list").scrollTop, keepY = scrollY;
+      if (!keepVar || selected !== name) { selVar = selBackVar = selTrain = trainVar = selBack = null; detTab = "out"; }
       /* Uniquement les trains avec des places MAX JEUNE, classés par heure de départ */
       const freeSorted = l => l.filter(x => x.ok).sort((a, b) => a.dep.localeCompare(b.dep) || a.arr.localeCompare(b.arr));
       const [tAll, tb] = sameDay(freeSorted(t0), rDate ? freeSorted(curGB?.get(name) || []) : null);
@@ -1921,14 +2013,21 @@
       const vkeys = [...new Set(tAll.map(vkey))].sort(vsort);
       if (selVar != null && !vkeys.includes(selVar)) selVar = null;
       const t = selVar == null ? tAll : tAll.filter(x => vkey(x) === selVar);
+      /* Variantes du retour (via X, depuis Y…) : mêmes boutons, dans l'onglet Retour */
+      const bkeys = tb ? [...new Set(tb.map(vkey))].sort(vsort) : [];
+      if (selBackVar != null && !bkeys.includes(selBackVar)) selBackVar = null;
+      const tbv = tb && (selBackVar == null ? tb : tb.filter(x => vkey(x) === selBackVar));
       /* Train choisi (ou le seul de la liste) : ses arrêts sont affichés */
       /* Train du retour choisi : c'est lui qui est tracé (l'aller n'est alors pas choisi) */
-      const chosenB = (selBack && tb?.find(x => tkey(x) === selBack)) || null;
+      let chosenB = (selBack && tbv?.find(x => tkey(x) === selBack)) || null;
+      if (!chosenB && detTab === "back" && selBackVar != null && tbv.length === 1) chosenB = tbv[0];   // une seule possibilité dans la variante : elle est tracée
       if (!chosenB) selBack = null;
       let chosen = chosenB ? null : t.find(x => tkey(x) === selTrain) || null;
       if (!chosen) { selTrain = trainVar = null; if (t.length === 1 && !chosenB) chosen = t[0]; }
-      const chips = vkeys.length < 2 ? "" : `<div class="vchips" role="group" aria-label="Itinéraires à afficher">${[[null, "Tous", tAll.length], ...vkeys.map(k => [k, vlabel(k, vkeys), tAll.filter(x => vkey(x) === k).length])]
-        .map(([k, l, n]) => `<button type="button" class="vchip${k === selVar ? " sel" : ""}" aria-pressed="${k === selVar}"${k == null ? " data-all" : ` data-k="${attr(k)}"`}>${l} <span>${n}</span></button>`).join("")}</div>`;
+      if (chosenB) detTab = "back";   // train du retour choisi : on reste sur l'onglet Retour
+      const chipsOf = (keys, list, sel, back) => keys.length < 2 ? "" : `<div class="vchips" role="group" aria-label="Itinéraires ${back ? "du retour " : ""}à afficher">${[[null, "Tous", list.length], ...keys.map(k => [k, vlabel(k, keys), list.filter(x => vkey(x) === k).length])]
+        .map(([k, l, n]) => `<button type="button" class="vchip${k === sel ? " sel" : ""}" aria-pressed="${k === sel}"${back ? " data-back" : ""}${k == null ? " data-all" : ` data-k="${attr(k)}"`}>${l} <span>${n}</span></button>`).join("")}</div>`;
+      const chips = chipsOf(vkeys, tAll, selVar, false), chipsB = tb ? chipsOf(bkeys, tb, selBackVar, true) : "";
       const [A, B] = ends(name);
       popup?.remove(); $("list").querySelector(".detail")?.remove();
       selected = name;
@@ -1994,19 +2093,33 @@
         + (x.xe ? xferInfo(x.xe.a, x.xe.b, "À l'arrivée, changement de gare", x.xe.min) : "");
       const rowsOf = (list, date, pick) => list.map(x => withXfer(x, x.legs ? connRow(x, date, pick) : trow(x, date, pick))).join("") || `<div class="tempty">Aucune place MAX JEUNE ce jour-là.</div>`;
       const nTr = n => `<b>${n}</b> train${n > 1 ? "s" : ""}`;
-      const rows = !tb ? rowsOf(t, qDate, true)
-        : `<div class="psec">Aller · ${frDate(qDate)} · ${t.length} train${t.length > 1 ? "s" : ""}</div>${rowsOf(t, qDate, true)}
-    <div class="psec">Retour · ${clean(B)} → ${clean(A)} · ${frDate(rDate)} · ${tb.length} train${tb.length > 1 ? "s" : ""}</div>${rDate === qDate ? `<div class="hint psame">Aller-retour dans la journée : seuls les trains compatibles sont affichés (retour après l'arrivée du premier aller).</div>` : ""}${rowsOf(tb, rDate, true)}`;
+      /* Aller-retour : deux onglets « Aller » / « Retour », un seul sens affiché à la fois (les variantes ne concernent que l'aller) */
+      const tab = (k, lbl, from, to, date, n) => `<button type="button" class="dtab" role="tab" id="dtab-${k}" data-tab="${k}" aria-controls="dpan-${k}" aria-selected="${detTab === k}" tabindex="${detTab === k ? 0 : -1}">
+    <span class="dtab-l">${lbl}<em>${n}</em></span><span class="dtab-s" title="${clean(from)} → ${clean(to)}">${frDate(date)} · vers ${clean(to)}</span></button>`;
+      const rows = !tb ? chips + rowsOf(t, qDate, true)
+        : `<div class="dtabs" role="tablist" aria-label="Sens du trajet">${tab("out", "Aller", A, B, qDate, t.length)}${tab("back", "Retour", B, A, rDate, tbv.length)}</div>
+    <div class="dpan" id="dpan-out" role="tabpanel" aria-labelledby="dtab-out"${detTab === "out" ? "" : " hidden"}>${chips}${rowsOf(t, qDate, true)}</div>
+    <div class="dpan" id="dpan-back" role="tabpanel" aria-labelledby="dtab-back"${detTab === "back" ? "" : " hidden"}>${rDate === qDate ? `<div class="hint psame">Aller-retour dans la journée : seuls les trains compatibles sont affichés (retour après l'arrivée du premier aller).</div>` : ""}${chipsB}${rowsOf(tbv, rDate, true)}</div>`;
       /* Détail affiché dans la liste, juste sous le trajet choisi */
       const li = [...$("list").children].find(l => l.dataset.n === name); if (!li) return;
       const det = document.createElement("li");
       det.className = "detail";
-      det.innerHTML = `<div class="det-head"><span>${tb ? `Aller ${frDate(qDate)} · ${nTr(t.length)} — Retour ${frDate(rDate)} · ${nTr(tb.length)}` : `${frDate(qDate)} · ${nTr(t.length)} MAX JEUNE`}</span>
+      det.innerHTML = `<div class="det-head"><span>${tb ? `Aller-retour · ${nTr(t.length + tb.length)} MAX JEUNE` : `${frDate(qDate)} · ${nTr(t.length)} MAX JEUNE`}</span>
     <button class="det-x" type="button" title="Fermer" aria-label="Fermer le détail"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button></div>
-    ${chips}${rows}
-    ${pathOf === name ? `<div class="pfoot">Tracé réel : ${pathData.features.length} tronçon(s), jusqu'à ${Math.max(...pathData.features.map(f => f.properties.v))} km/h</div>` : ""}<div class="hint">${t.length > 1 || tb?.length ? "Cliquez sur un train (aller ou retour) pour l'afficher avec ses arrêts sur la carte. " : ""}Les boutons ouvrent la recherche de ce train (choisissez ensuite le tarif MAX JEUNE sur SNCF Connect).${[...t, ...(tb || [])].some(x => x.legs) ? ` Avec correspondance, chaque train se réserve séparément : en cas de retard, la correspondance n'est pas garantie (correspondance minimale de ${MIN_CORR} min${maxWait < Infinity ? `, attente maximale de ${maxWait / 60} h` : ""}).` : ""}</div>`;
+    ${rows}
+    ${pathOf === name ? `<div class="pfoot">Tracé réel : ${pathData.features.length} tronçon(s), jusqu'à ${Math.max(...pathData.features.map(f => f.properties.v))} km/h</div>` : ""}<div class="hint">${t.length > 1 || tb?.length ? "Cliquez sur un train (aller ou retour) pour l'afficher avec ses arrêts sur la carte. " : ""}Les boutons ouvrent la recherche de ce train (choisissez ensuite le tarif MAX JEUNE sur SNCF Connect).${[...t, ...(tb || [])].some(x => x.legs) ? ` Avec correspondance, chaque train se réserve séparément : en cas de retard, la correspondance n'est pas garantie (correspondance minimale de ${MIN_CORR} min${maxWait < Infinity ? `, attente maximale de ${durTxt(maxWait)}` : ""}).` : ""}</div>`;
       det.querySelector(".det-x").onclick = () => { closeDetail(); li.focus?.(); };
-      det.querySelectorAll(".vchip").forEach(b => b.onclick = () => pickVar(name, "all" in b.dataset ? null : b.dataset.k));
+      det.querySelectorAll(".vchip").forEach(b => b.onclick = () => ("back" in b.dataset ? pickBackVar : pickVar)(name, "all" in b.dataset ? null : b.dataset.k));
+      /* Onglets Aller / Retour : bascule sans recharger la fiche (flèches gauche / droite au clavier) */
+      const tabs = [...det.querySelectorAll(".dtab")];
+      const setTab = k => {
+        detTab = k;
+        for (const b of tabs) { const on = b.dataset.tab === k; b.setAttribute("aria-selected", on); b.tabIndex = on ? 0 : -1; det.querySelector(`#dpan-${b.dataset.tab}`).hidden = !on; }
+      };
+      tabs.forEach(b => {
+        b.onclick = () => setTab(b.dataset.tab);
+        b.onkeydown = e => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); const o = tabs.find(x => x !== b); setTab(o.dataset.tab); o.focus(); } };
+      });
       det.querySelectorAll("[data-t]").forEach(el => {
         const back = "b" in el.dataset, go = () => pickTrain(name, el.dataset.t === (back ? selBack : selTrain) ? null : el.dataset.t, back);
         el.onclick = e => { if (!e.target.closest("a, button")) go(); };
@@ -2021,14 +2134,26 @@
           `<div class="tstops">${per[i]?.length ? `${per[i].length} arrêt${per[i].length > 1 ? "s" : ""} : ${per[i].map(n => `<i>${clean(n)}</i>`).join(", ")}` : "Sans arrêt"}</div>`));
       });
       li.after(det);
+      updHint();
+      if (refresh) {
+        /* Mise à jour : même position de défilement (liste et page), sans animation d'apparition */
+        det.classList.add("still");
+        $("list").scrollTop = keepTop; if (scrollY !== keepY) scrollTo({ top: keepY, behavior: "instant" });
+        return;
+      }
       /* La liste défile pour montrer le trajet en haut, avec son détail dessous.
          Sur téléphone, un clic dans la liste ne fait pas bouger la page ; un clic sur la carte descend jusqu'au trajet. */
       if (fromMap || !MOBILE.matches) li.scrollIntoView({ behavior: REDUCE ? "auto" : "smooth", block: "start" });
     }
     /* Choix d'une variante (bouton de la fiche ou clic sur son tracé) : seule elle reste sur la carte */
     function pickVar(name, key) {
-      selVar = key; selTrain = trainVar = selBack = null; show(name, false, true); focusRoute(name);
+      selVar = key; selTrain = trainVar = selBack = null; detTab = "out"; show(name, false, true); focusRoute(name);
       $("list").querySelector(`.vchip${key == null ? "[data-all]" : `[data-k="${CSS.escape(key)}"]`}`)?.focus({ preventScroll: true });
+    }
+    /* Variante du retour : filtre la liste de l'onglet Retour (et la trace si elle ne compte qu'un train) */
+    function pickBackVar(name, key) {
+      selBackVar = key; selBack = null; detTab = "back"; show(name, false, true);
+      $("list").querySelector(`.vchip[data-back]${key == null ? "[data-all]" : `[data-k="${CSS.escape(key)}"]`}`)?.focus({ preventScroll: true });
     }
     /* Choix d'un train de l'aller (clic sur sa carte) : sa variante est tracée et ses arrêts apparaissent ; second clic = annule */
     function pickTrain(name, key, back = false) {
@@ -2037,16 +2162,48 @@
         selBack = key && (curGB?.get(name) || []).some(x => tkey(x) === key) ? key : null; selTrain = trainVar = null;
       } else {
         const x = key && (curG.get(name) || []).find(x => tkey(x) === key);
-        selTrain = x ? key : null; trainVar = x ? vkey(x) : null; selBack = null;
+        selTrain = x ? key : null; trainVar = x ? vkey(x) : null; selBack = null; detTab = "out";
       }
       show(name, false, true); focusRoute(name);
       if (key) $("list").querySelector(`[data-t="${CSS.escape(key)}"]${back ? "[data-b]" : ":not([data-b])"}`)?.focus({ preventScroll: true });
     }
+    /* ---------- Indications en haut de la carte ----------
+       Une phrase selon l'étape : accueil (choisir un départ), résultats (choisir une destination), destination ouverte
+       (choisir un itinéraire ou un train), train choisi. La croix masque l'indication jusqu'à l'étape suivante. */
+    let hintOff = null;
+    function updHint(startName = null) {
+      const where = MOBILE.matches ? "sous la carte" : "à gauche", form = MOBILE.matches ? "le formulaire" : "le formulaire à gauche";
+      const dest = rev ? "gare de départ" : "destination", dests = rev ? "gares de départ" : "destinations";
+      let k, txt;
+      if (!document.body.classList.contains("res")) {
+        k = "home" + (startName || "");
+        txt = startName ? `Départ : <b>${clean(startName)}</b>. Choisissez la date dans ${form}, puis <b>Afficher les trajets</b>.`
+          : `<b>Cliquez sur une gare</b> de la carte pour en faire votre départ (ou choisissez-la dans ${form}), puis <b>Afficher les trajets</b>.`;
+      } else if (!routes.length && !selected) { k = "none"; txt = ""; }
+      else if (!selected) { k = "res"; txt = `<b>Cliquez sur une ${dest}</b> (point ou nom) sur la carte, ou dans la liste ${where}, pour voir ses trains MAX JEUNE.`; }
+      else if (!selTrain && !selBack && $("list").querySelector(".detail .pick")) { k = "one"; txt = `Le seul train possible est affiché avec <b>ses arrêts</b>. <b>Cliquez ailleurs</b> sur la carte pour revenir à toutes les ${dests}.`; }
+      else if (selTrain || selBack) { k = "train"; txt = `Train affiché avec <b>ses arrêts</b>. Recliquez sur le train dans la liste pour l'annuler, ou <b>cliquez ailleurs</b> sur la carte pour revenir à toutes les ${dests}.`; }
+      else {
+        const r = routes.find(r => r.name === selected), many = r && r.vars.length > 1 && effVar() == null;
+        k = "sel" + (many ? "m" : "");
+        txt = (many ? `Plusieurs itinéraires possibles : <b>cliquez sur un tracé</b> pour n'en garder qu'un, ou ` : "")
+          + `<b>${many ? "c" : "C"}liquez sur un train</b> dans la liste ${where} pour voir son tracé et ses arrêts. Cliquez ailleurs sur la carte pour revenir à toutes les ${dests}.`;
+      }
+      if (k !== hintOff) hintOff = null;
+      $("mhint-txt").innerHTML = txt;
+      const hide = !txt || hintOff === k;
+      if ($("mhint").hidden !== hide || $("mhint").dataset.k !== k) {
+        $("mhint").hidden = hide; $("mhint").dataset.k = k;
+        $("mhint").classList.remove("pop"); void $("mhint").offsetWidth; $("mhint").classList.add("pop");
+      }
+    }
+    $("mhint-x").onclick = () => { hintOff = $("mhint").dataset.k; $("mhint").hidden = true; };
     function closeDetail() {
       $("list").querySelector(".detail")?.remove();
-      selVar = selTrain = trainVar = selBack = null;
+      selVar = selBackVar = selTrain = trainVar = selBack = null;
       if (nightAuto) setNight(false, true);
       if (selected) { selected = null; applyHighlight(); }
+      updHint();
     }
     document.addEventListener("click", e => {
       const a = e.target.closest(".book"); if (!a) return;
@@ -2086,10 +2243,13 @@
         const notGone = d => r => d !== day || String(r[F.dep] || "").padStart(5, "0") > hhmm;
         /* Correspondances demandées : on charge en plus tous les trains du jour avec des places (aller, et retour si demandé) */
         const corr = +$("corr").value;
-        maxWait = corr && $("wait").value ? +$("wait").value * 60 : Infinity;
+        maxWait = corr ? gaugeVal("wait") : Infinity;
+        const win = (a, b) => [$(a).value === "" ? 0 : +$(a).value, $(b).value === "" ? Infinity : +$(b).value];
+        depWin = win("tmin", "tmax"); retWin = ret ? win("rmin", "rmax") : [0, Infinity];
+        maxDur = durVal();
         const [out, bk, dOut, dBk] = await Promise.all([fetchAll({ where }), whereBack ? fetchAll({ where: whereBack }) : [],
           corr ? fetchDay(date) : [], corr && ret ? fetchDay(ret) : []]);
-        all = out.filter(notGone(date)).filter(xferRowOk(allO, false)); back = bk.filter(notGone(ret)).filter(xferRowOk(allO, true)); rDate = ret || null;
+        all = out.filter(notGone(date)).filter(r => inWin(r[F.dep]) && durOk(toTrain(r))).filter(xferRowOk(allO, false)); back = bk.filter(notGone(ret)).filter(r => inWin(r[F.dep], retWin) && durOk(toTrain(r))).filter(xferRowOk(allO, true)); rDate = ret || null;
         dayOut = dOut.filter(notGone(date)).map(toTrain); dayBack = dBk.filter(notGone(ret)).map(toTrain); nCorr = corr;
         rev = allO; originIata = oIata; qDate = date;
         dest0 = allO ? $("dest").selectedOptions[0].text : null;   // gare, ou « Ville (toutes les gares) »
@@ -2102,7 +2262,8 @@
           hubCodes = [...cs];
         } else hubCodes = [...oIata.split(","), ...nearCodes];
         /* Gares atteintes seulement avec correspondance (tous types de trains) */
-        const viaOnly = !allO && corr ? [...connections(dayOut, hubCodes, true, corr, "").keys()] : [];
+        const inWinMap = m => [...m].filter(([, its]) => its.some(it => inWin(it.dep) && durOk(it))).map(([n]) => n);
+        const viaOnly = !allO && corr ? inWinMap(connections(dayOut, hubCodes, true, corr, "")) : [];
         /* Mode normal : destinations desservies (directes ou avec correspondance) ; la destination déjà choisie est conservée */
         if (!allO) {
           const names = [...new Set([...all.map(r => r[F.dest]), ...viaOnly])];
@@ -2110,7 +2271,7 @@
           destOptions(names.sort(), d0);
         }
         $("dest").disabled = false;
-        const anyConn = corr && (allO ? connections(dayOut, hubCodes, false, corr, "").size > 0 : viaOnly.length > 0);
+        const anyConn = corr && (allO ? inWinMap(connections(dayOut, hubCodes, false, corr, "")).length > 0 : viaOnly.length > 0);
         if (!all.length && !anyConn) $("status").textContent = allO ? "Aucun train trouvé vers cette destination à cette date." : "Aucun train trouvé pour cette date et cette gare.";
         else render();
         showResults(true);
@@ -2121,23 +2282,28 @@
     function showResults(on) {
       document.body.classList.toggle("res", on);
       startsOn = !on; refreshStarts();   // gares de départ : uniquement sur la carte d'accueil
+      updHint();
       $("form").hidden = on; $("recap").hidden = !on;
       if (!on) { $("go").focus(); return; }
       const oText = $("origin").selectedOptions[0]?.text || "", dText = $("dest").selectedOptions[0]?.text || "";
       const from = $("origin").value === ALL_O ? "Toutes les gares de départ" : clean(oText);
       const to = $("dest").value ? clean(dText) : "Toutes les destinations";
-      const kind = ($("kind").value ? ` · ${$("kind").selectedOptions[0].text}` : "")
+      const kind = (kindSet() ? ` · ${kindBoxes().filter(x => x.checked).map(x => x.parentElement.textContent.trim()).join(", ")}` : "")
         + (+$("corr").value ? ` · jusqu'à ${$("corr").value} correspondance${$("corr").value > 1 ? "s" : ""}` : "")
-        + (+$("corr").value && $("wait").value ? ` (attente ≤ ${$("wait").value} h)` : "")
+        + (+$("corr").value && gaugeVal("wait") < Infinity ? ` (attente ≤ ${durTxt(gaugeVal("wait"))})` : "")
+        + (durVal() < Infinity ? ` · trajet ≤ ${durTxt(durVal())}` : "")
         + ($("xfer").checked ? " · changements de gare autorisés" : "");
-      const dates = $("ret").value ? `Aller ${frDate($("date").value)} · retour ${frDate($("ret").value)}` : `${frDate($("date").value)} · aller simple`;
+      const win = (a, b) => $(a).value === "" && $(b).value === "" ? ""
+        : $(b).value === "" ? ` (départ dès ${hhmmOf($(a).value)})` : $(a).value === "" ? ` (départ avant ${hhmmOf($(b).value)})`
+        : ` (départ ${hhmmOf($(a).value)}–${hhmmOf($(b).value)})`;
+      const dates = $("ret").value ? `Aller ${frDate($("date").value)}${win("tmin", "tmax")} · retour ${frDate($("ret").value)}${win("rmin", "rmax")}` : `${frDate($("date").value)}${win("tmin", "tmax")} · aller simple`;
       $("recap-txt").innerHTML = `<b>${from} → ${to}</b><span>${dates}${kind}</span>`;
     }
     /* Retour à la recherche : on efface les résultats et la carte, mais le formulaire garde les choix de la recherche
        (dates, gare de départ, destination, type de train, trains complets) pour pouvoir la modifier */
     function resetAll() {
       all = []; back = []; rDate = null; dayOut = []; dayBack = []; nCorr = 0; hubCodes = []; curG = new Map(); curGB = null; rev = false; dest0 = null; origin = null; originIata = null; qDate = null;
-      selected = null; selVar = selTrain = trainVar = selBack = null; backVar = null; routes = []; pathOf = null; popup?.remove(); popup = null;
+      selected = null; selVar = selBackVar = selTrain = trainVar = selBack = null; backVar = null; routes = []; pathOf = null; popup?.remove(); popup = null;
       routesData = { type: "FeatureCollection", features: [] }; pathData = { type: "FeatureCollection", features: [] };
       map.getSource("routes")?.setData(routesData); map.getSource("path")?.setData(pathData); setStops([]); showXfers([]);
       setOriginMarker(null);
@@ -2150,10 +2316,122 @@
     }
     $("back").onclick = () => { resetAll(); showResults(false); };
     /* L'attente maximale n'a de sens qu'avec des correspondances */
+    /* ---------- Plages horaires de départ : boutons à petite horloge + cadran (#tp) ----------
+       Valeur de chaque champ caché : minutes depuis minuit (« » = sans limite). */
+    const TP = { id: "tmin", mode: "h", h: 8, m: 0, drag: false };
+    const PAIR = { tmin: "tmax", tmax: "tmin", rmin: "rmax", rmax: "rmin" };
+    const TP_SUB = { tmin: "Aller · départ au plus tôt", tmax: "Aller · départ au plus tard", rmin: "Retour · départ au plus tôt", rmax: "Retour · départ au plus tard" };
+    const two = n => String(n).padStart(2, "0");
+    const hhmmOf = v => `${two(Math.floor(v / 60))}:${two(v % 60)}`;
+    const polar = (cx, r, a) => [cx + r * Math.sin(a * Math.PI / 180), cx - r * Math.cos(a * Math.PI / 180)];
+    /* Petite horloge dont les aiguilles montrent l'heure choisie (10 h 10 quand le champ est vide) */
+    const clockIcon = v => {
+      const t = v === "" ? 610 : +v, p = (a, l) => polar(12, l, a).map(n => n.toFixed(2)).join(" ");
+      return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 12L${p((t / 60 % 12) * 30, 4.3)}M12 12L${p((t % 60) * 6, 6.2)}"/></svg>`;
+    };
+    function setTime(id, v) {
+      $(id).value = v === "" ? "" : String(v);
+      $(id + "-btn").innerHTML = `${clockIcon($(id).value)}<span>${v === "" ? "--:--" : hhmmOf(+v)}</span>`;
+      $(id + "-btn").classList.toggle("empty", v === "");
+    }
+    function tpDraw() {
+      const C = 120, hrs = TP.mode === "h", cur = hrs ? TP.h : TP.m;
+      const items = hrs ? Array.from({ length: 24 }, (_, v) => ({ v, r: v < 12 ? 94 : 60, a: (v % 12) * 30, t: v < 12 ? two(v) : String(v), sm: v >= 12 }))
+        : Array.from({ length: 12 }, (_, i) => ({ v: i * 5, r: 94, a: i * 30, t: two(i * 5) }));
+      const [hx, hy] = hrs ? polar(C, cur < 12 ? 94 : 60, (cur % 12) * 30) : polar(C, 94, cur * 6);
+      const ticks = hrs ? "" : Array.from({ length: 60 }, (_, i) => i % 5 ? (([x, y]) => `<circle class="tp-tick" cx="${x}" cy="${y}" r="1.3"/>`)(polar(C, 94, i * 6)) : "").join("");
+      $("tp-dial").innerHTML = `<circle class="tp-face" cx="${C}" cy="${C}" r="116"/>${ticks}`
+        + `<line class="tp-hand" x1="${C}" y1="${C}" x2="${hx}" y2="${hy}"/><circle class="tp-hub" cx="${C}" cy="${C}" r="4"/><circle class="tp-knob" cx="${hx}" cy="${hy}" r="17"/>`
+        + items.map(o => { const [x, y] = polar(C, o.r, o.a); return `<text class="tp-n${o.sm ? " sm" : ""}${o.v === cur ? " on" : ""}" x="${x}" y="${y}" dy=".35em">${o.t}</text>`; }).join("");
+      $("tp-dial").setAttribute("aria-valuetext", hrs ? `${TP.h} heures` : `${TP.m} minutes`);
+      $("tp-dial").setAttribute("aria-label", hrs ? "Heure (flèches pour changer, Entrée pour valider)" : "Minutes (flèches pour changer, Entrée pour valider)");
+      $("tp-h").textContent = two(TP.h); $("tp-m").textContent = two(TP.m);
+      $("tp-h").classList.toggle("on", hrs); $("tp-m").classList.toggle("on", !hrs);
+    }
+    function tpOpen(on, id = TP.id) {
+      const pop = $("tp");
+      $(TP.id + "-btn").setAttribute("aria-expanded", "false");
+      if (!on) { pop.hidden = true; return; }
+      dpOpen(false);
+      /* Champ vide : on propose 8:00 au plus tôt, et une heure après l'autre borne (ou 20:00) au plus tard */
+      const v = $(id).value, other = $(PAIR[id]).value, late = id.endsWith("max");
+      const t = v !== "" ? +v : late ? (other !== "" ? Math.min(+other + 60, 23 * 60 + 55) : 20 * 60) : (other !== "" ? Math.max(+other - 60, 0) : 8 * 60);
+      Object.assign(TP, { id, mode: "h", h: Math.floor(t / 60), m: t % 60 });
+      $("tp-sub").textContent = TP_SUB[id];
+      tpDraw();
+      const r = $(id + "-btn").getBoundingClientRect(), w = 280;
+      pop.style.left = `${Math.max(10, Math.min(r.left, innerWidth - w - 10))}px`; pop.style.top = `${r.bottom + 8}px`; pop.style.width = `${w}px`;
+      pop.hidden = false; $(id + "-btn").setAttribute("aria-expanded", "true");
+      $("tp-dial").focus();
+    }
+    function tpCommit(v = TP.h * 60 + TP.m) {
+      const id = TP.id, o = PAIR[id], late = id.endsWith("max");
+      setTime(id, v);
+      /* Bornes incohérentes (fin avant début) : l'autre borne est effacée */
+      if (v !== "" && $(o).value !== "" && (late ? +$(o).value > v : +$(o).value < v)) setTime(o, "");
+      tpOpen(false); $(id + "-btn").focus();
+    }
+    function dialPick(e) {
+      const r = $("tp-dial").getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 240 - 120, y = (e.clientY - r.top) / r.height * 240 - 120;
+      const i = Math.round(((Math.atan2(x, -y) * 180 / Math.PI) + 360) % 360 / 30) % 12;
+      if (TP.mode === "h") TP.h = i + (Math.hypot(x, y) < 77 ? 12 : 0); else TP.m = i * 5;
+      tpDraw();
+    }
+    for (const id of Object.keys(PAIR)) {
+      setTime(id, "");
+      $(id + "-btn").onclick = e => { e.stopPropagation(); tpOpen($("tp").hidden || TP.id !== id, id); };
+    }
+    const dial = $("tp-dial");
+    dial.onpointerdown = e => { e.preventDefault(); dial.focus(); dial.setPointerCapture(e.pointerId); TP.drag = true; dialPick(e); };
+    dial.onpointermove = e => { if (TP.drag) dialPick(e); };
+    dial.onpointerup = () => { if (!TP.drag) return; TP.drag = false; if (TP.mode === "h") { TP.mode = "m"; tpDraw(); } else tpCommit(); };
+    dial.onpointercancel = () => { TP.drag = false; };
+    dial.onkeydown = e => {
+      const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
+      if (d) { e.preventDefault(); if (TP.mode === "h") TP.h = (TP.h + d + 24) % 24; else TP.m = (TP.m + 5 * d + 60) % 60; tpDraw(); }
+      else if (e.key === "Enter") { e.preventDefault(); if (TP.mode === "h") { TP.mode = "m"; tpDraw(); } else tpCommit(); }
+    };
+    $("tp-h").onclick = () => { TP.mode = "h"; tpDraw(); dial.focus(); };
+    $("tp-m").onclick = () => { TP.mode = "m"; tpDraw(); dial.focus(); };
+    $("tp-ok").onclick = () => tpCommit();
+    $("tp-clear").onclick = () => tpCommit("");
+    document.addEventListener("click", e => { if (!$("tp").hidden && !e.target.closest("#tp, .tp-btn")) tpOpen(false); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("tp").hidden) { tpOpen(false); $(TP.id + "-btn").focus(); } });
+    addEventListener("resize", () => tpOpen(false));
+    /* Jauges (durée max. du trajet : 1 h → 20 h ; attente max. en correspondance : 30 min → 6 h) : tout à droite = sans limite.
+       --p = part remplie de la jauge ; la pastille à droite affiche la valeur */
+    const gaugeVal = id => { const d = $(id); return +d.value >= +d.max ? Infinity : Math.round(+d.value * 60); };
+    const durVal = () => gaugeVal("dur");
+    const durTxt = m => m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${two(m % 60)}` : ""}`;
+    for (const id of ["dur", "wait"]) {
+      const d = $(id), sync = () => {
+        const v = gaugeVal(id);
+        d.style.setProperty("--p", `${(d.value - d.min) / (d.max - d.min) * 100}%`);
+        $(id + "-out").textContent = v === Infinity ? "Sans limite" : `≤ ${durTxt(v)}`;
+        $(id + "-out").classList.toggle("off", v === Infinity);
+        d.setAttribute("aria-valuetext", v === Infinity ? "Sans limite" : `${durTxt(v)} maximum`);
+      };
+      d.addEventListener("input", sync); sync();
+    }
+    /* « Plus de filtres » : pastille = nombre de filtres modifiés ; bloc ouvert ou fermé mémorisé dans le navigateur */
+    const syncMore = () => {
+      const n = [!!kindSet(), $("corr").value !== "0", durVal() < Infinity, +$("corr").value > 0 && gaugeVal("wait") < Infinity, !$("xfer").checked, $("full").checked].filter(Boolean).length;
+      $("more-n").hidden = !n; $("more-n").textContent = n;
+    };
+    for (const id of ["kind", "corr", "dur", "wait", "xfer", "full"]) $(id).addEventListener(id === "dur" || id === "wait" ? "input" : "change", syncMore);
+    syncMore();
+    try { $("more").open = localStorage.getItem("moreOpen") === "1"; } catch { }
+    $("more").addEventListener("toggle", () => { try { localStorage.setItem("moreOpen", $("more").open ? "1" : "0"); } catch { } });
+    updHint();
+    MOBILE.addEventListener("change", () => updHint());
     const syncWait = () => $("wait-f").hidden = !+$("corr").value;
     $("corr").addEventListener("change", syncWait); syncWait();
     const hasRes = () => all.length || dayOut.length;
-    $("full").onchange = $("kind").onchange = () => hasRes() && render();
+    $("full").onchange = () => hasRes() && render();
+    /* Types de train changés après la recherche : carte et liste refiltrées, récapitulatif mis à jour */
+    $("kind").onchange = () => { if (hasRes()) { render(); showResults(true); } };
+    /* Au moins un type de train reste coché */
+    $("kind").addEventListener("change", e => { if (!kindBoxes().some(x => x.checked)) e.target.checked = true; }, true);
     /* Changer de destination : simple filtre en mode normal ; nouvelle recherche si toutes les gares de départ sont demandées */
     $("dest").onchange = () => {
       if ($("origin").value === ALL_O) { if ($("dest").value && (all.length || rev)) $("go").click(); }
