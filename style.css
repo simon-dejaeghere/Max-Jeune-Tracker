@@ -2380,7 +2380,7 @@ body.night .gauge::-moz-range-thumb {
     border-radius: 12px
 }
 
-#list .dtab {
+:is(#list, #cal) .dtab {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -2398,17 +2398,17 @@ body.night .gauge::-moz-range-thumb {
     transition: background .15s, color .15s, box-shadow .15s
 }
 
-#list .dtab:hover {
+:is(#list, #cal) .dtab:hover {
     color: var(--ink)
 }
 
-#list .dtab[aria-selected="true"] {
+:is(#list, #cal) .dtab[aria-selected="true"] {
     color: var(--ink);
     background: #fff;
     box-shadow: 0 1px 4px rgba(27, 42, 58, .14)
 }
 
-#list .dtab:focus-visible {
+:is(#list, #cal) .dtab:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px
 }
@@ -2434,11 +2434,11 @@ body.night .gauge::-moz-range-thumb {
     border-radius: 999px
 }
 
-#list .dtab[aria-selected="true"] .dtab-l {
+:is(#list, #cal) .dtab[aria-selected="true"] .dtab-l {
     color: var(--accent)
 }
 
-#list .dtab[aria-selected="true"] .dtab-l em {
+:is(#list, #cal) .dtab[aria-selected="true"] .dtab-l em {
     color: #fff;
     background: var(--accent)
 }
@@ -2463,7 +2463,7 @@ body.night .dtabs {
     background: #0d141e
 }
 
-body.night #list .dtab[aria-selected="true"] {
+body.night :is(#list, #cal) .dtab[aria-selected="true"] {
     background: var(--card)
 }
 
@@ -3041,3 +3041,805 @@ body.night #recent-list li {
 body.night #recent-list .recent-go:hover {
     background-color: rgba(77, 138, 222, .14)
 }
+
+/* ---------- Onglets « Où partir » / « Quand partir » ---------- */
+.mtabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    margin: 14px 0 2px;
+    padding: 4px;
+    background: #e6ecf2;
+    border-radius: 12px
+}
+
+.mtabs button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin: 0;
+    padding: 8px 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--mute);
+    background: transparent;
+    border: 0;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background .15s, color .15s, box-shadow .15s
+}
+
+.mtabs button:hover {
+    color: var(--ink)
+}
+
+.mtabs button[aria-selected="true"] {
+    color: var(--accent);
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(27, 42, 58, .14)
+}
+
+.mtabs button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px
+}
+
+body.night .mtabs {
+    background: var(--card2)
+}
+
+body.night .mtabs button[aria-selected="true"] {
+    background: var(--card);
+    color: var(--accent)
+}
+
+body.when .where-only,
+body:not(.when) .when-only {
+    display: none
+}
+
+/* ---------- « Quand partir » : calendrier à la place de la carte ---------- */
+#cal {
+    display: none
+}
+
+/* La carte (#map) reste masquée, sauf quand elle est déplacée dans la fenêtre d'un trajet (wmap, voir whenMap) */
+body.when #wrap :is(#legend, #ttlegend, #speed, #search, #mtop),
+body.when:not(.wmap) #map {
+    display: none !important
+}
+
+body.when #cal {
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    padding: 28px clamp(16px, 4vw, 48px) 32px;
+    background: var(--bg)
+}
+
+.cal-in {
+    max-width: 860px;
+    margin: 0 auto
+}
+
+.cal-head h2 {
+    margin: 0;
+    font-size: 22px;
+    letter-spacing: -.01em
+}
+
+.cal-head h2 .arrow {
+    color: var(--mute);
+    font-weight: 400
+}
+
+.cal-head p {
+    margin: 4px 0 0;
+    color: var(--mute)
+}
+
+.cal-sum {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 16px 0 18px
+}
+
+.cal-sum span {
+    padding: 6px 12px;
+    font-size: 13px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 999px
+}
+
+.cal-sum b {
+    color: var(--accent)
+}
+
+.cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px
+}
+
+.cal-dow {
+    padding: 0 4px 2px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--mute)
+}
+
+.cal-day {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    min-width: 0;
+    min-height: 84px;
+    margin: 0;
+    padding: 8px 9px;
+    font: inherit;
+    text-align: left;
+    color: var(--ink);
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: transform .12s, box-shadow .12s, border-color .12s
+}
+
+.cal-day:not(:disabled):hover {
+    border-color: var(--accent);
+    box-shadow: 0 2px 8px rgba(27, 42, 58, .12);
+    transform: translateY(-1px)
+}
+
+.cal-day:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px
+}
+
+.cal-day:disabled {
+    cursor: default
+}
+
+.cal-day.out {
+    visibility: hidden
+}
+
+.cal-dn {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--mute)
+}
+
+.cal-day.we .cal-dn {
+    color: var(--accent)
+}
+
+.cal-n {
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1.05
+}
+
+.cal-n small {
+    margin-left: 3px;
+    font-size: 11px;
+    font-weight: 600
+}
+
+.cal-s {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 11px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-weight: 400;
+    color: var(--mute)
+}
+
+/* Intensité : nombre de trains de l'aller avec des places MAX JEUNE */
+.cal-day.l1 { background: #e3f4ec; border-color: #bfe3d2 }
+.cal-day.l2 { background: #b9e5d1; border-color: #8fd2b4 }
+.cal-day.l3 { background: #6fc7a2; border-color: #4fb68a }
+.cal-day.l4 { background: var(--ok); border-color: var(--ok); color: #fff }
+.cal-day.l3 .cal-s, .cal-day.l3 .cal-dn { color: #12452f }
+.cal-day.l4 .cal-s, .cal-day.l4 .cal-dn { color: rgba(255, 255, 255, .85) }
+
+.cal-day.none {
+    background: transparent;
+    border-style: dashed
+}
+
+.cal-day.none .cal-n {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--mute);
+    margin-top: auto
+}
+
+.cal-day.full {
+    background: repeating-linear-gradient(-45deg, #eef1f4 0 6px, #e3e8ee 6px 12px)
+}
+
+.cal-day.full .cal-n {
+    font-size: 13px;
+    color: var(--mute);
+    margin-top: auto
+}
+
+.cal-day.sel {
+    outline: 3px solid var(--accent);
+    outline-offset: 1px
+}
+
+.cal-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    margin-top: 16px;
+    font-size: 12px;
+    color: var(--mute)
+}
+
+.cal-legend i {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    min-height: 0;
+    padding: 0;
+    margin-right: 5px;
+    vertical-align: -3px;
+    border: 1px solid var(--line);
+    border-radius: 4px
+}
+
+.cal-intro {
+    padding: 20px;
+    margin-top: 18px;
+    color: var(--mute);
+    background: #fff;
+    border: 1px dashed var(--line);
+    border-radius: 12px
+}
+
+.cal-intro b {
+    color: var(--ink)
+}
+
+body.night :is(.cal-day, .cal-sum span, .cal-intro) {
+    background-color: var(--card);
+    border-color: var(--line)
+}
+
+body.night .cal-day.l1 { background: #163a30; border-color: #1f4d3f }
+body.night .cal-day.l2 { background: #1b5a45; border-color: #22705a }
+body.night .cal-day.l3 { background: #23836a; border-color: #2a9478 }
+body.night .cal-day.l4 { background: #2fbf8f; border-color: #2fbf8f; color: #0b1a14 }
+body.night .cal-day.l3 :is(.cal-s, .cal-dn), body.night .cal-day.l4 :is(.cal-s, .cal-dn) { color: rgba(255, 255, 255, .8) }
+body.night .cal-day.l4 :is(.cal-s, .cal-dn) { color: rgba(0, 0, 0, .65) }
+body.night .cal-day.none { background: transparent }
+body.night .cal-day.full { background: repeating-linear-gradient(-45deg, #1a2433 0 6px, #202c3d 6px 12px) }
+
+@media (prefers-reduced-motion: reduce) {
+    .cal-day { transition: none }
+    .cal-day:not(:disabled):hover { transform: none }
+}
+
+@media (max-width: 760px) {
+    body.when #wrap {
+        height: auto;
+        min-height: 0
+    }
+
+    body.when #cal {
+        position: static;
+        padding: 16px 12px 20px
+    }
+
+    .cal-grid {
+        gap: 4px
+    }
+
+    .cal-day {
+        min-height: 62px;
+        padding: 6px;
+        border-radius: 8px
+    }
+
+    .cal-n {
+        font-size: 18px
+    }
+
+    .cal-n small,
+    .cal-s {
+        display: none
+    }
+
+    .cal-day.none .cal-n,
+    .cal-day.full .cal-n {
+        font-size: 10px
+    }
+}
+
+/* « Quand partir » avec les retours : un calendrier par sens, et un intertitre par sens dans la liste */
+.cal-sec + .cal-sec {
+    margin-top: 34px;
+    padding-top: 26px;
+    border-top: 1px solid var(--line)
+}
+
+.cal-sec h3 {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+    font-size: 20px;
+    letter-spacing: -.01em
+}
+
+.cal-sec h3 .arrow {
+    color: var(--mute);
+    font-weight: 400
+}
+
+.cal-tag {
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: #fff;
+    background: var(--accent);
+    border-radius: 999px
+}
+
+.cal-head p {
+    margin: 0 0 12px
+}
+
+#list li.lsec {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 8px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+    cursor: default
+}
+
+#list li.lempty {
+    color: var(--mute);
+    cursor: default
+}
+
+/* ---------- Chargement : petit train qui traverse la voie ---------- */
+#loading {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    background: rgba(244, 246, 248, .55);
+    backdrop-filter: blur(2px);
+    animation: ld-in .25s ease-out .12s both   /* légère attente : rien ne clignote si la réponse est immédiate (cache) */
+}
+
+#loading[hidden] {
+    display: none
+}
+
+@keyframes ld-in {
+    from { opacity: 0 }
+}
+
+.ld-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 18px 22px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 8px 28px rgba(27, 42, 58, .18)
+}
+
+.ld-track {
+    position: relative;
+    width: 260px;
+    height: 46px;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent)
+}
+
+/* Rail et traverses qui défilent */
+.ld-rail {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 4px;
+    height: 8px;
+    background:
+        linear-gradient(#8795a5, #8795a5) 0 1px / 100% 2px no-repeat,
+        repeating-linear-gradient(90deg, #c3ccd6 0 4px, transparent 4px 14px);
+    animation: ld-rail .5s linear infinite
+}
+
+@keyframes ld-rail {
+    to { background-position: 0 1px, -14px 0 }
+}
+
+.ld-train {
+    position: absolute;
+    bottom: 9px;
+    left: 0;
+    animation: ld-run 2.2s cubic-bezier(.45, .05, .55, .95) infinite, ld-bob .28s ease-in-out infinite alternate
+}
+
+@keyframes ld-run {
+    from { transform: translateX(-100px) }
+    to { transform: translateX(270px) }
+}
+
+@keyframes ld-bob {
+    to { translate: 0 -1px }
+}
+
+/* Petits nuages de vitesse derrière le train */
+.ld-puff {
+    position: absolute;
+    bottom: 16px;
+    left: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #d5dde6;
+    opacity: 0;
+    animation: ld-puff 2.2s cubic-bezier(.45, .05, .55, .95) infinite
+}
+
+.ld-puff.p2 { animation-delay: .08s; width: 6px; height: 6px; bottom: 20px }
+.ld-puff.p3 { animation-delay: .16s; width: 5px; height: 5px; bottom: 13px }
+
+@keyframes ld-puff {
+    0% { transform: translateX(-110px) scale(.6); opacity: 0 }
+    20% { opacity: .9 }
+    100% { transform: translateX(250px) scale(1.4); opacity: 0 }
+}
+
+#loading-txt::after {
+    content: "";
+    display: inline-block;
+    width: 1.2em;
+    text-align: left;
+    animation: ld-dots 1.2s steps(4) infinite
+}
+
+@keyframes ld-dots {
+    0% { content: "" }
+    25% { content: "." }
+    50% { content: ".." }
+    75% { content: "..." }
+}
+
+body.night #loading {
+    background: rgba(15, 22, 33, .55)
+}
+
+body.night .ld-card {
+    background: var(--card);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .45)
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ld-train { animation: none; transform: translateX(84px) }
+    .ld-rail, .ld-puff, #loading-txt::after { animation: none }
+    #loading { animation: none }
+}
+
+@media (max-width: 760px) {
+    body.when #loading {
+        position: fixed
+    }
+}
+
+/* ---------- Panneau de droite : filtres pour affiner les résultats ---------- */
+#fpanel[hidden] {
+    display: none
+}
+
+body.res {
+    grid-template-columns: 340px minmax(0, 1fr) 290px
+}
+
+#fpanel {
+    grid-column: 3;
+    grid-row: 1;
+    min-height: 0;
+    overflow: auto;
+    background: var(--bg);
+    border-left: 1px solid var(--line);
+    z-index: 2
+}
+
+#fpanel summary {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 16px 16px 12px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+    list-style: none;
+    cursor: pointer;
+    user-select: none
+}
+
+#fpanel summary::-webkit-details-marker {
+    display: none
+}
+
+#fpanel summary > svg:first-child {
+    color: var(--accent)
+}
+
+#fpanel summary span {
+    flex: 1
+}
+
+#fpanel summary em {
+    min-width: 20px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 700;
+    text-align: center;
+    color: #fff;
+    background: var(--accent);
+    border-radius: 999px
+}
+
+#fpanel summary .dp-chev {
+    transition: transform .15s
+}
+
+#fpanel[open] summary .dp-chev {
+    transform: rotate(180deg)
+}
+
+#fpanel .more-body {
+    padding: 0 16px 6px
+}
+
+#fpanel .more-body > :first-child {
+    margin-top: 0
+}
+
+.fp-hint {
+    margin: 4px 16px 16px;
+    font-size: 12px;
+    color: var(--mute)
+}
+
+@media (max-width: 760px) {
+    body.res {
+        grid-template-columns: none
+    }
+
+    /* Téléphone : entre le récapitulatif et la carte, repliable */
+    #fpanel {
+        order: 3;
+        flex: none;
+        overflow: visible;
+        border-left: 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line)
+    }
+
+    #fpanel summary {
+        padding: 12px 14px
+    }
+
+    #fpanel .more-body {
+        padding: 0 14px 4px
+    }
+}
+
+/* ---------- « Quand partir » : bouton carte d'un trajet, et vue carte ---------- */
+body.when #days {
+    display: none !important
+}
+
+.ttime .wmap-btn {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    margin: -4px -4px -4px auto;
+    padding: 0;
+    color: var(--accent);
+    background: #eef3fa;
+    border: 1px solid #cfdcef;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background .15s, color .15s, transform .12s
+}
+
+.ttime .wmap-btn.on,
+.ttime .wmap-btn:hover {
+    color: #fff;
+    background: var(--accent);
+    border-color: var(--accent)
+}
+
+.ttime .wmap-btn:active {
+    transform: scale(.94)
+}
+
+.ttime .wmap-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px
+}
+
+body.night .ttime .wmap-btn {
+    background: rgba(77, 138, 222, .14);
+    border-color: var(--line)
+}
+
+/* ---------- « Quand partir » : fenêtre de la carte d'un trajet ---------- */
+#mapmodal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(16, 24, 40, .5);
+    backdrop-filter: blur(3px);
+    animation: ld-in .18s ease-out
+}
+
+#mapmodal[hidden] {
+    display: none
+}
+
+html:has(body.wmap) {
+    overflow: hidden
+}
+
+.mm-box {
+    display: flex;
+    flex-direction: column;
+    width: min(1100px, 100%);
+    height: min(780px, 100%);
+    overflow: hidden;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(16, 24, 40, .35);
+    animation: mm-in .22s cubic-bezier(.2, .8, .3, 1)
+}
+
+@keyframes mm-in {
+    from { opacity: 0; transform: translateY(12px) scale(.98) }
+}
+
+.mm-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 12px 12px 18px;
+    color: #fff;
+    background: linear-gradient(135deg, #1f4e8c, #2d6cb5)
+}
+
+.mm-txt {
+    flex: 1;
+    min-width: 0
+}
+
+.mm-sub {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    opacity: .8
+}
+
+.mm-title {
+    overflow: hidden;
+    font-size: 16px;
+    font-weight: 700;
+    white-space: nowrap;
+    text-overflow: ellipsis
+}
+
+#mm-x {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    margin: 0;
+    padding: 0;
+    color: #fff;
+    background: rgba(255, 255, 255, .15);
+    border: 1px solid rgba(255, 255, 255, .45);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: background .15s, color .15s, transform .15s
+}
+
+#mm-x:hover {
+    color: #1f4e8c;
+    background: #fff;
+    transform: rotate(90deg)
+}
+
+#mm-x:focus-visible {
+    outline: 2px solid #ffd23f;
+    outline-offset: 2px
+}
+
+.mm-map {
+    position: relative;
+    flex: 1;
+    min-height: 0
+}
+
+body.night .mm-box {
+    background: var(--card)
+}
+
+@media (max-width: 760px) {
+    #mapmodal {
+        padding: 8px
+    }
+
+    .mm-box {
+        height: 100%;
+        border-radius: 12px
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #mapmodal, .mm-box { animation: none }
+    #mm-x:hover { transform: none }
+}
+
+/* « Quand partir » avec les retours : onglets Aller / Retour au-dessus du calendrier */
+.cal-tabs {
+    max-width: 520px;
+    margin: 0 0 18px
+}
+
+#cal .dtab .dtab-l {
+    font-size: 14px
+}
+
+#cal .dtab .dtab-s {
+    font-size: 12px
+}
+
+body.night .cal-tabs {
+    background: var(--card2)
+}
+

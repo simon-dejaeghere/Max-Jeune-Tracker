@@ -22,7 +22,8 @@
   const lab = o => special(o) ? o.text : disp(o.text);
   /* Options rangées : [entrée spéciale], 20 gares principales, puis le reste de A à Z */
   function orderedOptions(sel) {
-    const opts = [...sel.options], head = opts.filter(o => special(o) && !o.disabled), rest = opts.filter(o => !special(o));
+    /* data-same : gare déjà choisie dans l'autre champ (départ = destination interdit), retirée de la liste */
+    const opts = [...sel.options].filter(o => !o.dataset.same), head = opts.filter(o => special(o) && !o.disabled), rest = opts.filter(o => !special(o));
     const top = [];
     for (const k of TOP20) {
       const free = rest.filter(o => !top.includes(o)), ks = [].concat(k);
@@ -69,7 +70,7 @@
       || `<li class="dd-empty">${sel.options.length ? "Aucune gare trouvée" : "Chargement des gares…"}</li>`;
     const cur = sel.selectedOptions[0];
     $("dd-title").textContent = cur && !cur.disabled ? lab(cur) : "";
-    const nb = [...sel.options].filter(o => !special(o)).length;
+    const nb = [...sel.options].filter(o => !special(o) && !o.dataset.same).length;
     $("dd-foot").textContent = q ? `${t.length + r.length} gare(s) sur ${nb}` : `${nb} gares${f.length ? "" : " · ☆ pour ajouter une gare aux favoris"}`;
     DD.active = q ? 0 : Math.max(0, DD.items.findIndex(o => o.value === sel.value));
     ddActive(!q ? "top" : "nearest");
@@ -362,7 +363,7 @@
     for (const f of gj.features) {
       const p = f.properties; if (seen.has(p.code_uic) || f.geometry?.type !== "Point") continue;
       seen.add(p.code_uic);
-      const v = p.voyageurs === "O", L = nn(p.libelle), C = nn(p.commune || ""), tgv = /TGV/.test(L);
+      const v = p.voyageurs === "O", L = nn(p.libelle), C = nn(p.commune || ""), tgv = /\bTGV\b/.test(L);
       if (v) feats.push({ type: "Feature", properties: { name: p.libelle, commune: p.commune, tgv }, geometry: f.geometry });
       const tok = new Set([...L.split(" "), ...C.split(" ")]);
       tok.forEach(t => S.df.set(t, (S.df.get(t) || 0) + 1));
@@ -388,7 +389,7 @@
     if (!r.length) { const m = find(s => n.startsWith(s.L + " ")), Lm = Math.max(0, ...m.map(s => s.L.length)); r = m.filter(s => s.L.length === Lm); }
     if (!r.length) {
       /* Mots pondérés par leur rareté (un mot présent dans peu de gares pèse plus) */
-      const want = n.split(" ").filter(t => t.length > 1 && !STOP.has(t)), tgv = /TGV/.test(n), w = t => 1 / (S.df.get(t) || 1);
+      const want = n.split(" ").filter(t => t.length > 1 && !STOP.has(t)), tgv = /\bTGV\b/.test(n), w = t => 1 / (S.df.get(t) || 1);
       let best = null, bs = 0;
       for (const s of S.list) {
         const hit = want.filter(t => s.tok.has(t)); if (!hit.length) continue;
@@ -469,8 +470,11 @@
 
   /* ---------- API ---------- */
   /* Endpoint d'export : renvoie tous les résultats d'un coup, sans pagination ni limite de 100. */
+  /* Cars SNCF (axe « AUTOCAR SNCF ») : écartés de toutes les requêtes, le site ne montre que des trains */
+  const NO_BUS = `${F.axe}!="AUTOCAR SNCF"`;
   async function fetchAll(params) {
-    const r = await fetch(`${EXPORT}?${new URLSearchParams({ ...params, limit: -1 })}`);
+    const where = params.where ? `(${params.where}) AND ${NO_BUS}` : NO_BUS;
+    const r = await fetch(`${EXPORT}?${new URLSearchParams({ ...params, where, limit: -1 })}`);
     if (!r.ok) throw new Error(`API SNCF : HTTP ${r.status}`);
     return (await r.json()).filter(inScope).map(realNames);
   }
@@ -538,12 +542,18 @@
   const monShort = d => d.toLocaleDateString("fr-FR", { month: "short" });
   /* Le calendrier sert à deux champs : « date » (aller) et « ret » (retour, facultatif : valeur vide = pas de retour) */
   const DP = { id: "date" };
+  /* Onglet de recherche : « where » = Où partir (une date, toutes les destinations sur la carte) ;
+     « when » = Quand partir (un départ et une destination précis, les 30 jours parcourus, calendrier à la place de la carte) */
+  let MODE = "where"; try { if (localStorage.getItem("mode") === "when") MODE = "when"; } catch { }
+  document.body.classList.toggle("when", MODE === "when");
+  /* Plage horaire du retour : avec une date de retour (Où partir) ou un retour choisi (Quand partir) */
+  const syncRtime = () => $("rtime").hidden = MODE === "when" ? !$("wback").checked : !$("ret").value;
   function setDate(v, id = "date") {
     $(id).value = v;
     const x = DAYS.find(o => o.k === v);
     $(id + "-txt").innerHTML = !v ? "Pas de retour" : x && x.rel ? `<b>${x.label}</b>` : (x ? x.label : fmtLong(fromIso(v)));
     $(id + "-btn").classList.toggle("empty", !v);
-    if (id === "ret") $("rtime").hidden = !v;
+    if (id === "ret") syncRtime();
     /* Le retour ne peut pas précéder l'aller */
     if (id === "date" && $("ret").value && $("ret").value < v) setDate("", "ret");
   }
@@ -1142,7 +1152,7 @@
      au moment du gestionnaire général, qui croit à un clic dans le vide et referme aussitôt la fiche. */
   let ptsClick = null;
   for (const l of ["pts", "pts-label"]) {
-    map.on("click", l, e => { ptsClick = e.originalEvent; show(e.features[0].properties.name, true); });
+    map.on("click", l, e => { if (document.body.classList.contains("wmap")) return; ptsClick = e.originalEvent; show(e.features[0].properties.name, true); });
     map.on("mouseenter", l, () => map.getCanvas().style.cursor = "pointer");
     map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
   }
@@ -1166,6 +1176,7 @@
     map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
   }
   map.on("click", e => {
+    if (document.body.classList.contains("wmap")) return;   // « Quand partir », un seul trajet affiché : rien à choisir sur la carte
     const s = startsOn && START_L().length && map.queryRenderedFeatures(e.point, { layers: START_L() })[0];
     if (s) {
       popup?.remove();
@@ -1204,16 +1215,32 @@
   const attr = s => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
   /* Destination « toutes les gares » d'une ville : valeur = noms des gares séparés par « | » */
   function destOptions(names, keep) {
-    const sel = $("dest"), allO = $("origin").value === ALL_O, groups = cityGroups(names);
+    /* Quand partir : une destination précise est aussi exigée */
+    const sel = $("dest"), allO = $("origin").value === ALL_O || MODE === "when", groups = cityGroups(names);
     sel.innerHTML = (allO ? `<option value="" disabled>Choisissez une destination</option>` : `<option value="">Toutes les destinations</option>`)
       + groups.map(g => `<option value="${attr(g.members.join("|"))}">${g.label}</option>`).join("")
       + names.map(n => `<option>${n}</option>`).join("");
     /* Choix conservé : même gare, ou même ville (« toutes les gares », même si les gares desservies ont changé) */
     const kg = keep?.includes("|") && cityGroups(keep.split("|"))[0]?.label;
-    const o = [...sel.options].find(o => !o.disabled && (o.value === keep || (kg && o.text === kg))) || [...sel.options].find(o => o.value === "");
+    markSame();   // destinations confondues avec le départ : écartées (et le choix conservé est abandonné s'il en fait partie)
+    const o = [...sel.options].find(o => !o.disabled && !o.dataset.same && (o.value === keep || (kg && o.text === kg))) || [...sel.options].find(o => o.value === "");
     if (o) o.selected = true;
+    markSame();
   }
+  /* Départ et destination ne peuvent pas être la même gare (ni une gare d'une ville « toutes les gares » choisie de l'autre côté) :
+     chaque option qui recouperait le choix de l'autre champ est marquée data-same et n'apparaît plus dans sa liste */
+  const codeNames = () => new Map(catalog().map(s => [s.code, s.name]));
+  const originNamesOf = (o, cn) => !o || !o.value || o.value === ALL_O || o.disabled ? [] : o.value.includes(",") ? o.value.split(",").map(c => cn.get(c)).filter(Boolean) : [o.text];
+  const destNamesOf = o => !o || !o.value || o.disabled ? [] : o.value.split("|");
+  function markSame() {
+    const cn = codeNames(), on = new Set(originNamesOf($("origin").selectedOptions[0], cn)), dn = new Set(destNamesOf($("dest").selectedOptions[0]));
+    const mark = (o, hit) => { if (hit) o.dataset.same = "1"; else delete o.dataset.same; };
+    for (const o of $("dest").options) mark(o, destNamesOf(o).some(n => on.has(n)));
+    for (const o of $("origin").options) mark(o, originNamesOf(o, cn).some(n => dn.has(n)));
+  }
+  const sameEnds = () => { const on = new Set(originNamesOf($("origin").selectedOptions[0], codeNames())); return destNamesOf($("dest").selectedOptions[0]).some(n => on.has(n)); };
   $("origin").addEventListener("change", () => { destOptions(NAMES, $("dest").value); refreshStarts(); });
+  $("dest").addEventListener("change", markSame);
 
   /* Gares de départ du jeu de données, placées sur la carte d'accueil (gares seules, pas les regroupements « toutes les gares ») */
   let startsData = EMPTY_FC, startsOn = true;
@@ -1259,6 +1286,7 @@
       /* Destination choisissable tout de suite : toutes les gares (remplacée après la recherche par les destinations desservies) */
       NAMES = [...new Set(rows.map(r => r[F.origin]))];
       destOptions(NAMES, "");
+      applyMode();
       buildStarts(); renderRecent();
     } catch (e) { $("origin").innerHTML = "<option>Erreur de chargement</option>"; $("status").textContent = e.message; }
   }
@@ -1877,6 +1905,16 @@
     if (changed && !growing && routesData === fc) map.getSource("routes")?.setData(dedupLines(fc));
   }
 
+  /* Itinéraire avec correspondance : heure de départ suivie de la (des) gare(s) de changement */
+  /* Heure de départ, avec la gare réelle si l'on change de gare avant (« depuis X ») ou après (« arrivée X ») */
+  const xtag = t => t.xs ? ` depuis ${clean(t.xs.b)}` : t.xe ? ` arrivée ${clean(t.xe.a)}` : "";
+  /* Au-delà de DEPS_MAX trains, seul leur nombre est affiché (le détail des horaires reste dans la fiche) */
+  const DEPS_MAX = 15;
+  const deps = l => !l.length ? "complet" : l.length > DEPS_MAX ? `${l.length} trains` : `${l.length} train(s) : ${l.map(t => t.legs ? `${t.dep}${xtag(t)} (via ${t.via.map(clean).join(", ")})` : `${t.dep}${xtag(t)}`).join(", ")}`;
+  /* Types de trains disponibles (ordre fixe), et pastille aux couleurs de chacun : une part par type */
+  const kindsOf = i => Object.keys(KIND).filter(k => [...i.free, ...(i.rfree || [])].some(t => hasKind(t, k)));
+  const dotBg = ks => ks.length < 2 ? KIND[ks[0]]?.[1] || "var(--ko)"
+    : `conic-gradient(${ks.map((k, j) => `${KIND[k][1]} ${j * 360 / ks.length}deg ${(j + 1) * 360 / ks.length}deg`).join(", ")})`;
   async function render() {
     const wanted = $("dest").value, full = $("full").checked, ks = kindSet();
     await garesReady.catch(() => { });
@@ -1892,7 +1930,9 @@
     const o = locate(hub());   // gare fixe : départ (mode normal) ou destination (toutes les gares de départ)
     for (const [name, all0] of g) {
       if (!rev && wanted && !wanted.split("|").includes(name)) continue;
-      const trains = ks ? all0.filter(t => kindOk(t, ks)) : all0;
+      let trains = ks ? all0.filter(t => kindOk(t, ks)) : all0;
+      /* « Quand partir », trajet affiché sur la carte : uniquement le train (ou l'itinéraire) choisi */
+      if (WHEN.map) trains = trains.filter(t => tkey(t) === WHEN.map.tk);
       if (!trains.length) continue;
       trains.sort((a, b) => a.dep.localeCompare(b.dep));
       /* Avec une date de retour, une gare n'est « disponible » que s'il reste des places à l'aller ET au retour */
@@ -1927,7 +1967,8 @@
     }
     if (o) bounds.extend(o);
     if (o && tt.length) tt.push({ xy: o, t: 0 });
-    setTravelTime(tt);
+    /* Fond « temps de parcours » : sans objet pour un seul trajet affiché depuis le calendrier de « Quand partir » */
+    setTravelTime(WHEN.map ? [] : tt);
     setOriginMarker(o);
     routesData = { type: "FeatureCollection", features: feats };
     growRoutes(routesData);
@@ -1935,14 +1976,6 @@
     refineClassic(routesData, routes);
     if (feats.length) map.fitBounds(bounds, { padding: fitPad(60), maxZoom: 8 });
     items.sort((a, b) => b.ok - a.ok || a.name.localeCompare(b.name));
-    /* Itinéraire avec correspondance : heure de départ suivie de la (des) gare(s) de changement */
-    /* Heure de départ, avec la gare réelle si l'on change de gare avant (« depuis X ») ou après (« arrivée X ») */
-    const xtag = t => t.xs ? ` depuis ${clean(t.xs.b)}` : t.xe ? ` arrivée ${clean(t.xe.a)}` : "";
-    const deps = l => l.length ? `${l.length} train(s) : ${l.map(t => t.legs ? `${t.dep}${xtag(t)} (via ${t.via.map(clean).join(", ")})` : `${t.dep}${xtag(t)}`).join(", ")}` : "complet";
-    /* Types de trains disponibles (ordre fixe), et pastille aux couleurs de chacun : une part par type */
-    const kindsOf = i => Object.keys(KIND).filter(k => [...i.free, ...(i.rfree || [])].some(t => hasKind(t, k)));
-    const dotBg = ks => ks.length < 2 ? KIND[ks[0]]?.[1] || "var(--ko)"
-      : `conic-gradient(${ks.map((k, j) => `${KIND[k][1]} ${j * 360 / ks.length}deg ${(j + 1) * 360 / ks.length}deg`).join(", ")})`;
     $("list").innerHTML = items.map(i => { const ks = kindsOf(i); return `<li data-n="${i.name}"><b><span class="dot" style="background:${i.ok ? dotBg(ks) : "var(--ko)"}"></span>${i.name}</b>
   ${!i.rfree ? `<span class="t">${i.ok ? deps(i.free) : "Complet"}</span>`
         : `<span class="t">Aller : ${deps(i.free)}</span><br><span class="t">Retour : ${deps(i.rfree)}</span><br>`}
@@ -2043,6 +2076,53 @@
     stopsData = { type: "FeatureCollection", features: feats }; map.getSource("stops")?.setData(stopsData);
     return per;
   }
+  /* ---------- Lignes de trains de la fiche détaillée (onglet « Où partir » et « Quand partir ») ---------- */
+  const hm = d => `${Math.floor(d / 60)}h${String(d % 60).padStart(2, "0")}`;
+  const durH = x => hm(durMin(x));
+  /* Heure d'arrivée ; arrivée le lendemain (train de nuit) : « +1 », avec la date d'arrivée en infobulle */
+  const arrTxt = (x, date) => {
+    if (!night(x)) return `<b>${x.arr}</b>`;
+    const n = new Date(date + "T12:00"); n.setDate(n.getDate() + 1);
+    const d = n.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+    return `<b title="Arrivée le lendemain, ${d}">${x.arr}<sup class="jplus" aria-label="le lendemain">+1</sup></b>`;
+  };
+  /* Changement de gare a → b : ligne d'en-tête, puis comment s'y rendre (métro, RER…) et lien d'itinéraire */
+  const xferInfo = (a, b, head, xm, tail = "") => {
+    const how = xferHow(a, b);
+    return `<div class="twait">${head} : ${clean(a)} → ${clean(b)}${xm ? ` (prévoir ~${xm} min)` : ""}${tail}</div>
+  <div class="txfer">${how ? `${how} ` : ""}<a href="${xferLink(a, b)}" target="_blank" rel="noopener">${how ? "Voir l'itinéraire" : "Itinéraire en transports en commun"}</a></div>`;
+  };
+  /* isPick / pk : train choisi et attributs d'un train cliquable (absents : trains non cliquables) */
+  /* tool : bouton ajouté à droite des horaires de chaque train ou itinéraire de la liste (ex. « voir sur la carte ») */
+  function rowKit(isPick = () => false, pk = () => "", tool = null) {
+    const tl = (x, top) => top && tool ? tool(x) : "";
+    const trow = (x, date, pick, top = false) => {
+      const o = tlId(x.from), d = tlId(x.to), k = KIND[x.kind];
+      return `<div class="trow${pick ? ` pickable${isPick(x) ? " pick" : ""}` : ""}"${pick ? pk(x) : ""}>
+  <div class="ttime"><b>${x.dep}</b><span class="tdur">${durH(x)}</span>${arrTxt(x, date)}${tl(x, top)}</div>
+  <div class="tst"><span>${clean(x.from)}</span><span>${clean(x.to)}</span></div>
+  <div class="tmeta">${k ? `<span class="badge" style="background:${k[1]}">${k[0]}</span>` : ""}<span>Train ${x.no}</span></div>
+  <div class="tbtn"><a class="book" href="${sncfLink(x.oIata, x.dIata, date, x.dep)}" target="_blank" rel="noopener">SNCF Connect</a><a class="book alt" href="${trainlineLink(o, d, date, x.dep)}" target="_blank" rel="noopener"${o && d ? "" : ` data-q="${phrase(x.from, x.to, date, x.dep)}"`}>Trainline</a></div></div>`;
+    };
+    /* Itinéraire avec correspondance(s) : en-tête (horaires et durée totale), puis chaque train à réserver séparément */
+    const connRow = (x, date, pick, top = false) => {
+      const n = x.legs.length - 1;
+      return `<div class="tconn${pick ? ` pickable${isPick(x) ? " pick" : ""}` : ""}"${pick ? pk(x) : ""}>
+  <div class="tconn-head"><div class="ttime"><b>${x.dep}</b><span class="tdur">${durH(x)}</span>${arrTxt(x, date)}${tl(x, top)}</div>
+  <div class="tconn-sub">${n} correspondance${n > 1 ? "s" : ""} · via ${x.via.map(clean).join(", ")}</div></div>
+  ${x.legs.map((l, i) => {
+        if (!i) return trow(l, date);
+        const p = x.legs[i - 1], w = hm(mins(l.dep) - mins(p.arr));
+        if (p.to === l.from) return `<div class="twait">Correspondance à ${clean(l.from)} · ${w} d'attente</div>` + trow(l, date);
+        return xferInfo(p.to, l.from, "Changement de gare", xferBetween(p.to, l.from), ` · ${w} entre les deux trains`) + trow(l, date);
+      }).join("")}</div>`;
+    };
+    /* Changement de gare avant le premier train (xs) ou après le dernier (xe) */
+    const withXfer = (x, row) => (x.xs ? xferInfo(x.xs.a, x.xs.b, "Avant le départ, changement de gare", x.xs.min) : "") + row
+      + (x.xe ? xferInfo(x.xe.a, x.xe.b, "À l'arrivée, changement de gare", x.xe.min) : "");
+    const rowsOf = (list, date, pick) => list.map(x => withXfer(x, x.legs ? connRow(x, date, pick, true) : trow(x, date, pick, true))).join("") || `<div class="tempty">Aucune place MAX JEUNE ce jour-là.</div>`;
+    return { rowsOf };
+  }
   function show(name, fromMap = false, keepVar = false) {
     const t0 = curG.get(name); if (!t0) return;
     /* Fiche déjà ouverte, simplement mise à jour (choix d'un train, d'une variante…) : rien ne doit bouger à l'écran */
@@ -2098,50 +2178,10 @@
     /* Train de nuit choisi : le mode nuit s'active ; il se désactive si c'était automatique et que le train choisi n'est plus de nuit */
     const picked = chosen || chosenB, isNight = !!picked && (picked.legs || [picked]).some(l => l.kind === "ICN");
     if (isNight) setNight(true, true); else if (nightAuto) setNight(false, true);
-    const ids = new Map([...t, ...(tb || [])].flatMap(x => x.legs || [x]).flatMap(x => [x.from, x.to]).map(n => [n, tlId(n)]));
-    const hm = d => `${Math.floor(d / 60)}h${String(d % 60).padStart(2, "0")}`;
-    const dur = x => hm(durMin(x));
-    /* Heure d'arrivée ; arrivée le lendemain (train de nuit) : « +1 », avec la date d'arrivée en infobulle */
-    const arrTxt = (x, date) => {
-      if (!night(x)) return `<b>${x.arr}</b>`;
-      const n = new Date(date + "T12:00"); n.setDate(n.getDate() + 1);
-      const d = n.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-      return `<b title="Arrivée le lendemain, ${d}">${x.arr}<sup class="jplus" aria-label="le lendemain">+1</sup></b>`;
-    };
     /* pk : attributs d'un train cliquable (aller, ou retour : data-b), pour afficher son tracé et ses arrêts */
     const isPick = x => x === chosen || x === chosenB;
     const pk = x => ` data-t="${attr(tkey(x))}"${tb?.includes(x) ? " data-b" : ""} tabindex="0" role="button" aria-pressed="${isPick(x)}" title="Afficher ce train et ses arrêts sur la carte"`;
-    const trow = (x, date, pick) => {
-      const o = ids.get(x.from), d = ids.get(x.to), k = KIND[x.kind];
-      return `<div class="trow${pick ? ` pickable${isPick(x) ? " pick" : ""}` : ""}"${pick ? pk(x) : ""}>
-  <div class="ttime"><b>${x.dep}</b><span class="tdur">${dur(x)}</span>${arrTxt(x, date)}</div>
-  <div class="tst"><span>${clean(x.from)}</span><span>${clean(x.to)}</span></div>
-  <div class="tmeta">${k ? `<span class="badge" style="background:${k[1]}">${k[0]}</span>` : ""}<span>Train ${x.no}</span></div>
-  <div class="tbtn"><a class="book" href="${sncfLink(x.oIata, x.dIata, date, x.dep)}" target="_blank" rel="noopener">SNCF Connect</a><a class="book alt" href="${trainlineLink(o, d, date, x.dep)}" target="_blank" rel="noopener"${o && d ? "" : ` data-q="${phrase(x.from, x.to, date, x.dep)}"`}>Trainline</a></div></div>`;
-    };
-    /* Itinéraire avec correspondance(s) : en-tête (horaires et durée totale), puis chaque train à réserver séparément */
-    const connRow = (x, date, pick) => {
-      const n = x.legs.length - 1;
-      return `<div class="tconn${pick ? ` pickable${isPick(x) ? " pick" : ""}` : ""}"${pick ? pk(x) : ""}>
-  <div class="tconn-head"><div class="ttime"><b>${x.dep}</b><span class="tdur">${dur(x)}</span>${arrTxt(x, date)}</div>
-  <div class="tconn-sub">${n} correspondance${n > 1 ? "s" : ""} · via ${x.via.map(clean).join(", ")}</div></div>
-  ${x.legs.map((l, i) => {
-        if (!i) return trow(l, date);
-        const p = x.legs[i - 1], w = hm(mins(l.dep) - mins(p.arr));
-        if (p.to === l.from) return `<div class="twait">Correspondance à ${clean(l.from)} · ${w} d'attente</div>` + trow(l, date);
-        return xferInfo(p.to, l.from, "Changement de gare", xferBetween(p.to, l.from), ` · ${w} entre les deux trains`) + trow(l, date);
-      }).join("")}</div>`;
-    };
-    /* Changement de gare a → b : ligne d'en-tête, puis comment s'y rendre (métro, RER…) et lien d'itinéraire */
-    const xferInfo = (a, b, head, xm, tail = "") => {
-      const how = xferHow(a, b);
-      return `<div class="twait">${head} : ${clean(a)} → ${clean(b)}${xm ? ` (prévoir ~${xm} min)` : ""}${tail}</div>
-  <div class="txfer">${how ? `${how} ` : ""}<a href="${xferLink(a, b)}" target="_blank" rel="noopener">${how ? "Voir l'itinéraire" : "Itinéraire en transports en commun"}</a></div>`;
-    };
-    /* Changement de gare avant le premier train (xs) ou après le dernier (xe) */
-    const withXfer = (x, row) => (x.xs ? xferInfo(x.xs.a, x.xs.b, "Avant le départ, changement de gare", x.xs.min) : "") + row
-      + (x.xe ? xferInfo(x.xe.a, x.xe.b, "À l'arrivée, changement de gare", x.xe.min) : "");
-    const rowsOf = (list, date, pick) => list.map(x => withXfer(x, x.legs ? connRow(x, date, pick) : trow(x, date, pick))).join("") || `<div class="tempty">Aucune place MAX JEUNE ce jour-là.</div>`;
+    const { rowsOf } = rowKit(isPick, pk);
     const nTr = n => `<b>${n}</b> train${n > 1 ? "s" : ""}`;
     /* Aller-retour : deux onglets « Aller » / « Retour », un seul sens affiché à la fois (les variantes ne concernent que l'aller) */
     const tab = (k, lbl, from, to, date, n) => `<button type="button" class="dtab" role="tab" id="dtab-${k}" data-tab="${k}" aria-controls="dpan-${k}" aria-selected="${detTab === k}" tabindex="${detTab === k ? 0 : -1}">
@@ -2225,7 +2265,11 @@
     const where = MOBILE.matches ? "sous la carte" : "à gauche", form = MOBILE.matches ? "le formulaire" : "le formulaire à gauche";
     const dest = rev ? "gare de départ" : "destination", dests = rev ? "gares de départ" : "destinations";
     let k, txt;
-    if (!document.body.classList.contains("res")) {
+    /* « Quand partir », un trajet du calendrier sur la carte : pas de choix de destination ici, seulement le retour au calendrier */
+    if (document.body.classList.contains("wmap")) {
+      k = "wmap";
+      txt = "";   // la fenêtre de la carte a son propre titre et sa croix
+    } else if (!document.body.classList.contains("res")) {
       k = "home" + (startName || "");
       txt = startName ? `Départ : <b>${clean(startName)}</b>. Choisissez la date dans ${form}, puis <b>Afficher les trajets</b>.`
         : `<b>Cliquez sur une gare</b> de la carte pour en faire votre départ (ou choisissez-la dans ${form}), puis <b>Afficher les trajets</b>.`;
@@ -2264,8 +2308,16 @@
 
   /* Téléphone : la carte est sous le formulaire, on la fait venir à l'écran après une action de l'utilisateur */
   const MOBILE = matchMedia("(max-width: 760px)");
+  /* Chargement d'une recherche : petit train qui roule au-dessus de la carte (ou du calendrier) */
+  const loading = (on, txt = "Recherche des trains MAX JEUNE") => {
+    const el = $("loading"); if (!el) return;
+    if (on) $("loading-txt").textContent = txt;
+    el.hidden = !on; $("wrap").setAttribute("aria-busy", String(on));
+  };
   const toMap = () => MOBILE.matches && $("wrap").scrollIntoView({ behavior: REDUCE ? "auto" : "smooth", block: "start" });
   $("go").onclick = async e => {
+    if (sameEnds()) { $("status").textContent = "Le départ et la destination doivent être deux gares différentes."; return; }
+    if (MODE === "when") return whenSearch(e);
     const oIata = $("origin").value, allO = oIata === ALL_O, d0 = $("dest").value, date = $("date").value, ret = $("ret").value;
     /* Toutes les gares de départ : une destination précise est obligatoire */
     if (allO && !d0) {
@@ -2275,7 +2327,7 @@
     }
     saveRecent();
     if (e?.isTrusted) toMap();
-    $("go").disabled = true; $("status").textContent = "Recherche en cours…";
+    $("go").disabled = true; $("status").textContent = "Recherche en cours…"; loading(true);
     try {
       /* Gares voisines de la gare fixe (départ, ou destination en mode « toutes les gares de départ ») : leurs trains sont aussi cherchés,
          avec un changement de gare (métro, RER…) au début du trajet, ou à la fin */
@@ -2327,7 +2379,7 @@
       else render();
       showResults(true);
     } catch (e) { $("status").textContent = e.message; }
-    $("go").disabled = false; $("days").classList.remove("busy"); updDays();
+    $("go").disabled = false; loading(false); $("days").classList.remove("busy"); updDays();
   };
   /* Résultats : le formulaire laisse la place à un récapitulatif et à la liste des trains */
   function showResults(on) {
@@ -2335,6 +2387,10 @@
     startsOn = !on; refreshStarts();   // gares de départ : uniquement sur la carte d'accueil
     updDays(); updHint();
     $("form").hidden = on; $("recap").hidden = !on;
+    /* Filtres secondaires : dans le panneau de droite avec les résultats, de retour dans « Plus de filtres » sinon (mêmes champs) */
+    const mb = document.querySelector(".more-body");
+    if (on) $("fp-body").append(mb); else $("more").append(mb);
+    if ($("fpanel").hidden !== !on) { $("fpanel").hidden = !on; map.resize(); }
     if (!on) { $("go").focus(); return; }
     const oText = $("origin").selectedOptions[0]?.text || "", dText = $("dest").selectedOptions[0]?.text || "";
     const from = $("origin").value === ALL_O ? "Toutes les gares de départ" : clean(oText);
@@ -2347,7 +2403,8 @@
     const win = (a, b) => $(a).value === "" && $(b).value === "" ? ""
       : $(b).value === "" ? ` (départ dès ${hhmmOf($(a).value)})` : $(a).value === "" ? ` (départ avant ${hhmmOf($(b).value)})`
       : ` (départ ${hhmmOf($(a).value)}–${hhmmOf($(b).value)})`;
-    const dates = $("ret").value ? `Aller ${frDate($("date").value)}${win("tmin", "tmax")} · retour ${frDate($("ret").value)}${win("rmin", "rmax")}` : `${frDate($("date").value)}${win("tmin", "tmax")} · aller simple`;
+    const dates = MODE === "when" ? `30 prochains jours${win("tmin", "tmax")}${$("wback").checked ? ` · retours aussi${win("rmin", "rmax")}` : ""}`
+      : $("ret").value ? `Aller ${frDate($("date").value)}${win("tmin", "tmax")} · retour ${frDate($("ret").value)}${win("rmin", "rmax")}` : `${frDate($("date").value)}${win("tmin", "tmax")} · aller simple`;
     $("recap-txt").innerHTML = `<b>${from} → ${to}</b><span>${dates}${kind}</span>`;
   }
   /* Retour à la recherche : on efface les résultats et la carte, mais le formulaire garde les choix de la recherche
@@ -2360,6 +2417,9 @@
     $("legend").classList.remove("show"); $("list").innerHTML = "";
   }
   function resetAll() {
+    /* En premier : le « change » envoyé plus bas sur la destination relancerait sinon la recherche « Quand partir » */
+    whenMapExit(false);   // fenêtre de la carte d'un trajet fermée, carte remise à sa place
+    WHEN.days = WHEN.bdays = null; WHEN.sel = null; WHEN.raw = null;
     all = []; back = []; rDate = null; dayOut = []; dayBack = []; nCorr = 0; hubCodes = []; curG = new Map(); curGB = null; rev = false; dest0 = null; origin = null; originIata = null; qDate = null;
     selected = null; selVar = selBackVar = selTrain = trainVar = selBack = null; backVar = null; routes = []; pathOf = null; popup?.remove(); popup = null;
     routesData = { type: "FeatureCollection", features: [] }; pathData = { type: "FeatureCollection", features: [] };
@@ -2370,6 +2430,8 @@
     $("origin").dispatchEvent(new Event("change"));   // reconstruit les destinations (toutes les gares, choix conservé) et met à jour les boutons
     $("dest").dispatchEvent(new Event("change"));
     $("search").classList.remove("open"); $("sq").value = ""; $("sres").innerHTML = "";
+    whenCal();
+    if (MODE === "when") $("status").textContent = WHEN_HELLO;
     map.flyTo({ center: [2.5, 46.6], zoom: 5 });
   }
   $("back").onclick = () => { resetAll(); showResults(false); };
@@ -2504,7 +2566,20 @@
   const syncMore = () => {
     const n = [!!kindSet(), $("corr").value !== "0", durVal() < Infinity, +$("corr").value > 0 && gaugeVal("wait") < Infinity, !$("xfer").checked, $("full").checked].filter(Boolean).length;
     $("more-n").hidden = !n; $("more-n").textContent = n;
+    $("fp-n").hidden = !n; $("fp-n").textContent = n;
   };
+  /* Filtres changés dans le panneau de droite (résultats affichés) : la recherche est relancée (réponses gardées en cache, donc rapide).
+     Types de train et trains complets : simple nouveau tri des résultats (voir plus bas). Jauges : au relâchement. */
+  let refT = 0;
+  const refilter = () => {
+    clearTimeout(refT);
+    refT = setTimeout(function again() {
+      if (!document.body.classList.contains("res")) return;
+      if ($("go").disabled) { refT = setTimeout(again, 300); return; }   // recherche en cours : on relance juste après
+      closeDetail(); $("go").onclick();
+    }, 250);
+  };
+  for (const id of ["corr", "dur", "wait", "xfer"]) $(id).addEventListener("change", refilter);
   for (const id of ["kind", "corr", "dur", "wait", "xfer", "full"]) $(id).addEventListener(id === "dur" || id === "wait" ? "input" : "change", syncMore);
   syncMore();
   try { $("more").open = localStorage.getItem("moreOpen") === "1"; } catch { }
@@ -2514,13 +2589,17 @@
   const syncWait = () => $("wait-f").hidden = !+$("corr").value;
   $("corr").addEventListener("change", syncWait); syncWait();
   const hasRes = () => all.length || dayOut.length;
-  $("full").onchange = () => hasRes() && render();
+  $("full").onchange = () => MODE === "when" ? WHEN.days && whenUpdate() : hasRes() && render();
   /* Types de train changés après la recherche : carte et liste refiltrées, récapitulatif mis à jour */
-  $("kind").onchange = () => { if (hasRes()) { render(); showResults(true); } };
+  $("kind").onchange = () => {
+    if (MODE === "when") { if (WHEN.days) { whenUpdate(); showResults(true); } }
+    else if (hasRes()) { render(); showResults(true); }
+  };
   /* Au moins un type de train reste coché */
   $("kind").addEventListener("change", e => { if (!kindBoxes().some(x => x.checked)) e.target.checked = true; }, true);
   /* Changer de destination : simple filtre en mode normal ; nouvelle recherche si toutes les gares de départ sont demandées */
   $("dest").onchange = () => {
+    if (MODE === "when") { if (WHEN.days && $("dest").value && !$("go").disabled) $("go").click(); return; }
     if ($("origin").value === ALL_O) { if ($("dest").value && (all.length || rev)) $("go").click(); }
     else if (hasRes() && !rev) render();
   };
@@ -2538,7 +2617,7 @@
   const recentTxt = r => `${r.o === ALL_O ? "Toutes les gares" : clean(r.ot)} → ${r.d ? clean(r.dt) : "Toutes destinations"}`;
   function renderRecent() {
     /* Seules les recherches encore possibles (gares présentes dans le jeu de données) sont proposées */
-    const oOk = new Set([...$("origin").options].map(o => o.value)), l = NAMES.length ? loadRecent().filter(r => oOk.has(r.o)) : [];
+    const oOk = new Set([...$("origin").options].map(o => o.value)), l = NAMES.length ? loadRecent().filter(r => oOk.has(r.o) && (MODE !== "when" || (r.o !== ALL_O && r.d))) : [];
     $("recent").hidden = !l.length;
     $("recent-list").innerHTML = l.map((r, i) => `<li><button type="button" class="recent-go" data-i="${i}" title="Relancer cette recherche">${attr(recentTxt(r))}</button><button type="button" class="recent-x" data-i="${i}" title="Retirer de l'historique" aria-label="Retirer ${attr(recentTxt(r))} de l'historique">×</button></li>`).join("");
     $("recent-list").dataset.keys = JSON.stringify(l.map(r => [r.o, r.d]));
@@ -2571,7 +2650,7 @@
     oSel.value = newOrigin.value; oSel.dispatchEvent(new Event("change"));   // reconstruit la liste des destinations
     destOptions(NAMES, newDest);
     /* Des résultats étaient affichés : on relance la recherche dans l'autre sens */
-    if (all.length || rev) $("go").click();
+    if (MODE === "when" ? WHEN.days : all.length || rev) $("go").click();
   };
   /* Sélecteur de cartes Carte facile : fonds + surcouches. On y ajoute nos deux couches (tronçons, gares)
      sous forme de cartes identiques à celles des surcouches de Carte facile. */
@@ -2618,6 +2697,289 @@
   };
   $("sq").onkeydown = e => { if (e.key === "Enter") { const li = $("sres").querySelector("li"); if (li) li.click(); } };
   $("sres").onclick = e => { const li = e.target.closest("li"); if (li) pickStation([...$("origin").options].find(o => o.value === li.dataset.i)); };
+  /* ---------- Quand partir ----------
+     Un départ et une destination précis : tous les trains des 30 prochains jours sont chargés en quelques requêtes (trains directs,
+     et avec des correspondances : trains au départ de la gare, trains vers la destination, et trains entre les deux pour 2 correspondances),
+     puis chaque jour est calculé comme une recherche « Où partir » à cette date (mêmes filtres). Case « Montrer aussi les retours » :
+     second calendrier dans le sens inverse (destination → départ), calculé de la même façon, indépendamment de l'aller. */
+  /* dir : onglet affiché quand les retours sont demandés (« o » = aller, « b » = retour) */
+  const WHEN = { days: null, bdays: null, sel: null, raw: null, dir: "o" };
+  const WHEN_HELLO = "Choisissez une gare de départ et une destination : le calendrier montre les jours avec des places MAX JEUNE sur les 30 prochains jours.";
+  const WHERE_HELLO = "Choisissez une date et une gare de départ.";
+  const fmtDay = k => fmtLong(fromIso(k));
+  async function whenSearch(e) {
+    const oIata = $("origin").value, d0 = $("dest").value, back = $("wback").checked;
+    if (!NAMES.length || !oIata || oIata === ALL_O) { $("status").textContent = "Choisissez une gare de départ."; return; }
+    if (!d0) {
+      $("status").textContent = "Choisissez une destination : le calendrier porte sur un trajet précis.";
+      setTimeout(() => $("dest-btn").click());
+      return;
+    }
+    saveRecent();
+    if (e?.isTrusted) toMap();
+    $("go").disabled = true; $("status").textContent = "Recherche des jours avec des places MAX JEUNE…"; loading(true, "Recherche sur les 30 prochains jours");
+    try {
+      await garesReady.catch(() => { });
+      xferOn = $("xfer").checked; rev = false; dest0 = null; originIata = oIata; origin = $("origin").selectedOptions[0].text;
+      /* Gares voisines du départ et de la destination (changement de gare en métro, RER… au début ou à la fin du trajet) */
+      HUB_NAMES = catalog().filter(s => oIata.split(",").includes(s.code)).map(s => s.name);
+      NEAR_HUB = xferOn ? nearOf(HUB_NAMES) : new Map();
+      const nearCodes = [...new Set([...NEAR_HUB.values()].map(x => x.code))].filter(c => !oIata.split(",").includes(c));
+      hubCodes = [...oIata.split(","), ...nearCodes];
+      const wanted = d0.split("|");
+      FAR = xferOn ? nearOf(wanted, new Set([...HUB_NAMES, ...NEAR_HUB.keys()])) : new Map();
+      const corr = +$("corr").value;
+      maxWait = corr ? gaugeVal("wait") : Infinity;
+      const win = (a, b) => [$(a).value === "" ? 0 : +$(a).value, $(b).value === "" ? Infinity : +$(b).value];
+      depWin = win("tmin", "tmax"); retWin = back ? win("rmin", "rmax") : [0, Infinity];
+      maxDur = durVal();
+      const IN = cs => `(${[...cs].filter(Boolean).map(c => `"${esc(String(c))}"`).join(",")})`;
+      const select = [F.date, F.origin, F.originIata, F.dest, F.destIata, F.dep, F.arr, F.train, F.ok, F.entity, F.axe].join(",");
+      const span = `${F.date}>=date'${iso(today)}' AND ${F.date}<=date'${iso(max)}'`, OK = ` AND ${F.ok}="OUI"`;
+      const q = w => fetchQuery({ where: `${span} AND ${w}`, select });
+      const destSt = [...wanted, ...FAR.keys()].join("|");
+      const toDest = whereStation(F.dest, F.destIata, destSt), fromDest = whereStation(F.origin, F.originIata, destSt);
+      const fromHub = `${F.originIata} IN ${IN(hubCodes)}`, toHub = `${F.destIata} IN ${IN(hubCodes)}`;
+      const [dOut, dBack, aOut, bOut, aBack, bBack] = await Promise.all([
+        q(`${fromHub} AND ${toDest}`), back ? q(`${fromDest} AND ${toHub}`) : [],
+        corr ? q(fromHub + OK) : [], corr ? q(toDest + OK) : [],
+        corr && back ? q(fromDest + OK) : [], corr && back ? q(toHub + OK) : []]);
+      /* 2 correspondances : trains du milieu, entre une gare atteinte depuis le départ et une gare d'où part un train vers la destination
+         (ou une gare voisine de l'une ou l'autre, si les changements de gare sont autorisés) */
+      const mid = (A, B) => {
+        if (corr < 2 || !A.length || !B.length) return [];
+        const reach = (rows, n, c) => {
+          const cs = new Set(rows.map(r => r[c]));
+          if (xferOn) for (const x of nearOf([...new Set(rows.map(r => r[n]))]).values()) cs.add(x.code);
+          return cs;
+        };
+        return q(`${F.originIata} IN ${IN(reach(A, F.dest, F.destIata))} AND ${F.destIata} IN ${IN(reach(B, F.origin, F.originIata))}${OK}`);
+      };
+      const [mOut, mBack] = await Promise.all([mid(aOut, bOut), back ? mid(aBack, bBack) : []]);
+      /* Lignes rangées par date (sans doublon : une même ligne peut venir de plusieurs requêtes) */
+      const byDate = (...lists) => {
+        const m = new Map(), seen = new Set();
+        for (const r of lists.flat()) {
+          const k = `${r[F.date]}|${r[F.train]}|${r[F.originIata]}|${r[F.destIata]}|${r[F.dep]}`; if (seen.has(k)) continue; seen.add(k);
+          const d = String(r[F.date]).slice(0, 10); if (!m.has(d)) m.set(d, []); m.get(d).push(r);
+        }
+        return m;
+      };
+      WHEN.raw = { wanted, back, corr, label: $("dest").selectedOptions[0]?.text || d0, dOut: byDate(dOut), dBack: byDate(dBack), cOut: byDate(aOut, bOut, mOut), cBack: byDate(aBack, bBack, mBack) };
+      WHEN.sel = null; if (!back) WHEN.dir = "o";
+      whenUpdate();
+      showResults(true);
+    } catch (err) { $("status").textContent = err.message; }
+    $("go").disabled = false; loading(false);
+  }
+  /* Chaque jour : trains directs et itinéraires avec correspondance, exactement comme une recherche « Où partir » ce jour-là.
+     Aller (days) et, si demandé, retour (bdays) : chacun pour lui-même, sans lien entre les deux. */
+  function whenUpdate() {
+    whenMapExit(false);   // nouveaux résultats : retour au calendrier
+    const R = WHEN.raw, ks = kindSet();
+    const now = new Date(), day = iso(now), hhmm = now.toTimeString().slice(0, 5);
+    const notGone = d => r => d !== day || String(r[F.dep] || "").padStart(5, "0") > hhmm;
+    const sorted = l => l.sort((a, b) => a.dep.localeCompare(b.dep) || a.arr.localeCompare(b.arr));
+    const pick = m => R.wanted.flatMap(n => m.get(n) || []).filter(t => kindOk(t, ks));
+    const res = (d, trains) => { const free = sorted(trains.filter(t => t.ok)); return { d, trains, free, ok: free.length > 0 }; };
+    const out = [], bk = [];
+    for (const { k } of DAYS) {
+      qDate = rDate = k; nCorr = R.corr;
+      all = (R.dOut.get(k) || []).filter(notGone(k)).filter(x => inWin(x[F.dep]) && durOk(toTrain(x))).filter(xferRowOk(false, false));
+      back = R.back ? (R.dBack.get(k) || []).filter(notGone(k)).filter(x => inWin(x[F.dep], retWin) && durOk(toTrain(x))).filter(xferRowOk(false, true)) : [];
+      dayOut = R.corr ? (R.cOut.get(k) || []).filter(notGone(k)).map(toTrain) : [];
+      dayBack = R.corr && R.back ? (R.cBack.get(k) || []).filter(notGone(k)).map(toTrain) : [];
+      out.push(res(k, pick(withConn(group(), false, ks))));
+      if (R.back) bk.push(res(k, pick(withConn(group(back, true), true, ks))));
+    }
+    WHEN.days = out; WHEN.bdays = R.back ? bk : null;
+    all = []; back = []; dayOut = []; dayBack = []; qDate = rDate = null;
+    if (WHEN.sel && !whenDay(WHEN.sel)?.ok) WHEN.sel = null;
+    whenRender();
+  }
+  /* Clé d'un jour : sens (« o » = aller, « b » = retour) et date */
+  const whenDay = key => { const [dir, d] = key.split("|"); return (dir === "b" ? WHEN.bdays : WHEN.days)?.find(x => x.d === d); };
+  const whenEnds = dir => dir === "b" ? [WHEN.raw.label, origin] : [origin, WHEN.raw.label];
+  const whenArrow = dir => { const [a, b] = whenEnds(dir); return `${clean(a)} → ${clean(b)}`; };
+  function whenRender() {
+    const R = WHEN.raw, full = $("full").checked, nOk = l => l.filter(x => x.ok).length;
+    const items = (dir, days) => days.filter(x => x.ok || (full && x.trains.length)).map(x => {
+      const ks = kindsOf(x), key = `${dir}|${x.d}`;
+      return `<li data-k="${key}"${key === WHEN.sel ? ' class="sel"' : ""}><b><span class="dot" style="background:${x.ok ? dotBg(ks) : "var(--ko)"}"></span>${fmtDay(x.d)}</b>
+  <span class="t">${x.ok ? deps(x.free) : "Complet"}</span>
+  ${x.ok ? ks.map(k => `<span class="badge" style="background:${KIND[k][1]}">${KIND[k][0]}</span>`).join("") : ""}</li>`;
+    }).join("") || `<li class="lempty">Aucun jour avec des places MAX JEUNE.</li>`;
+    /* Avec les retours : seuls les jours de l'onglet choisi (Aller ou Retour) */
+    if (!WHEN.bdays) WHEN.dir = "o";
+    const dir = WHEN.dir;
+    $("list").innerHTML = !WHEN.bdays ? items("o", WHEN.days)
+      : `<li class="lsec">${dir === "b" ? "Retour" : "Aller"} · ${whenArrow(dir)}</li>${items(dir, dir === "b" ? WHEN.bdays : WHEN.days)}`;
+    $("list").querySelectorAll("li[data-k]").forEach(li => li.onclick = () => whenShow(li.dataset.k));
+    const n = nOk(WHEN.days), nb = WHEN.bdays && nOk(WHEN.bdays), j = n => `${n} jour${n > 1 ? "s" : ""}`;
+    $("status").textContent = (WHEN.bdays ? `${j(n)} à l'aller et ${j(nb)} au retour avec des places MAX JEUNE (${clean(origin)} ⇄ ${clean(R.label)})`
+      : `${j(n)} sur ${WHEN.days.length} avec des places MAX JEUNE de ${clean(origin)} à ${clean(R.label)}`)
+      + (!n && !R.corr ? ". Essayez d'autoriser des correspondances (Plus de filtres)." : ".");
+    whenCal();
+    if (WHEN.sel) whenShow(WHEN.sel, false, true);
+  }
+  /* Calendrier (à la place de la carte) : semaines du lundi au dimanche, une case par jour, colorée selon le nombre de trains.
+     Avec les retours : onglets Aller / Retour au-dessus du calendrier (voir whenCal). */
+  function calGrid(dir, days) {
+    const s0 = addDays(today, -((today.getDay() + 6) % 7)), e0 = addDays(max, (7 - max.getDay()) % 7), cells = [];
+    let first = true;
+    for (let d = s0; d <= e0; d = addDays(d, 1)) {
+      const k = iso(d), x = days.find(o => o.d === k);
+      if (k < iso(today) || k > iso(max)) { cells.push(`<div class="cal-day out" aria-hidden="true"></div>`); continue; }
+      const dn = `${d.getDate()}${first || d.getDate() === 1 ? ` ${monShort(d)}` : ""}`, we = d.getDay() % 6 === 0 ? " we" : "", key = `${dir}|${k}`;
+      first = false;
+      if (!x?.ok) { cells.push(`<div class="cal-day ${x?.trains.length ? "full" : "none"}${we}" title="${x?.trains.length ? "Trains complets" : "Aucun train MAX JEUNE"}"><span class="cal-dn">${dn}</span><span class="cal-n">${x?.trains.length ? "Complet" : "—"}</span></div>`); continue; }
+      const n = x.free.length, lvl = n >= 7 ? 4 : n >= 4 ? 3 : n >= 2 ? 2 : 1;
+      cells.push(`<button type="button" class="cal-day l${lvl}${we}${key === WHEN.sel ? " sel" : ""}" data-k="${key}" aria-pressed="${key === WHEN.sel}" aria-label="${dir === "b" ? "Retour, " : ""}${fmtDay(k)} : ${n} train${n > 1 ? "s" : ""} MAX JEUNE">
+  <span class="cal-dn">${dn}</span><span class="cal-n">${n}<small>train${n > 1 ? "s" : ""}</small></span><span class="cal-s">dès ${x.free[0].dep}</span></button>`);
+    }
+    const dow = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map(d => `<div class="cal-dow">${d}</div>`).join("");
+    const ok = days.filter(x => x.ok), best = ok.reduce((a, x) => !a || x.free.length > a.free.length ? x : a, null);
+    const sum = `<div class="cal-sum"><span><b>${ok.length}</b> jour${ok.length > 1 ? "s" : ""} disponible${ok.length > 1 ? "s" : ""}</span>${ok.length ? `<span>Premier : <b>${fmtDay(ok[0].d)}</b></span><span>Le plus de choix : <b>${fmtDay(best.d)}</b> (${best.free.length} train${best.free.length > 1 ? "s" : ""})</span>` : ""}</div>`;
+    const [a, b] = whenEnds(dir);
+    return `<section class="cal-sec"><h3>${clean(a)} <span class="arrow">→</span> ${clean(b)}</h3>${sum}<div class="cal-grid">${dow}${cells.join("")}</div></section>`;
+  }
+  function whenCal() {
+    const el = $("cal");
+    if (!WHEN.days) {
+      el.innerHTML = `<div class="cal-in"><div class="cal-head"><h2>Quand partir ?</h2><p>Les jours où il reste des places MAX JEUNE pour un trajet précis.</p></div>
+  <div class="cal-intro">Choisissez <b>une gare de départ</b> et <b>une destination</b> à gauche, puis <b>Voir les dates disponibles</b> : chaque jour des 30 prochains jours s'affiche avec le nombre de trains MAX JEUNE. Cochez <b>Montrer aussi les retours</b> pour avoir aussi le calendrier dans l'autre sens. Cliquez sur un jour pour voir ses trains et les réserver.</div></div>`;
+      return;
+    }
+    const legend = `<div class="cal-legend"><span><i class="cal-day l1"></i>1 train</span><span><i class="cal-day l2"></i>2–3</span><span><i class="cal-day l3"></i>4–6</span><span><i class="cal-day l4"></i>7 et plus</span><span><i class="cal-day full"></i>Complet</span><span><i class="cal-day none"></i>Aucun train</span></div>`;
+    /* Avec les retours : deux onglets, Aller / Retour (nombre de jours disponibles), un seul calendrier affiché à la fois */
+    const tab = (dir, lbl, days) => { const on = WHEN.dir === dir, n = days.filter(x => x.ok).length;
+      return `<button type="button" class="dtab" role="tab" data-dir="${dir}" aria-selected="${on}" tabindex="${on ? 0 : -1}"><span class="dtab-l">${lbl}<em>${n}</em></span><span class="dtab-s">${whenArrow(dir)} · ${n} jour${n > 1 ? "s" : ""}</span></button>`; };
+    const tabs = WHEN.bdays ? `<div class="dtabs cal-tabs" role="tablist" aria-label="Sens du trajet">${tab("o", "Aller", WHEN.days)}${tab("b", "Retour", WHEN.bdays)}</div>` : "";
+    const dir = WHEN.bdays ? WHEN.dir : "o";
+    el.innerHTML = `<div class="cal-in"><div class="cal-head"><p>Places MAX JEUNE sur les 30 prochains jours</p></div>${tabs}${calGrid(dir, dir === "b" ? WHEN.bdays : WHEN.days)}${legend}</div>`;
+  }
+  $("cal").addEventListener("click", e => {
+    const t = e.target.closest(".dtab[data-dir]"); if (t) { whenDir(t.dataset.dir); return; }
+    const b = e.target.closest("button.cal-day[data-k]"); if (b) whenShow(b.dataset.k, true);
+  });
+  $("cal").addEventListener("keydown", e => {
+    const t = e.target.closest(".dtab[data-dir]"); if (!t || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    e.preventDefault(); whenDir(WHEN.dir === "o" ? "b" : "o"); $("cal").querySelector(`.dtab[data-dir="${WHEN.dir}"]`)?.focus();
+  });
+  /* Onglet Aller / Retour : la fiche d'un jour de l'autre sens est fermée */
+  function whenDir(dir) {
+    if (dir === WHEN.dir || !WHEN.bdays) return;
+    if (WHEN.sel && WHEN.sel[0] !== dir) WHEN.sel = null;
+    WHEN.dir = dir; whenRender();
+  }
+  function whenClose() {
+    $("list").querySelector(".detail")?.remove();
+    WHEN.sel = null;
+    $("list").querySelectorAll("li.sel").forEach(l => l.classList.remove("sel"));
+    $("cal").querySelectorAll(".cal-day.sel").forEach(c => { c.classList.remove("sel"); c.setAttribute("aria-pressed", "false"); });
+  }
+  /* Fiche d'un jour (dans un sens), sous sa ligne dans la liste : ses trains avec les liens de réservation */
+  function whenShow(key, fromCal = false, still = false) {
+    const x = whenDay(key); if (!x?.ok) return;
+    if (WHEN.sel === key && !fromCal && !still && $("list").querySelector(".detail")) { whenClose(); return; }
+    whenClose(); WHEN.sel = key;
+    const li = [...$("list").children].find(l => l.dataset.k === key); if (!li) return;
+    const cell = $("cal").querySelector(`.cal-day[data-k="${key}"]`);
+    li.classList.add("sel"); cell?.classList.add("sel"); cell?.setAttribute("aria-pressed", "true");
+    const mapBtn = t => `<button type="button" class="wmap-btn" data-wk="${attr(tkey(t))}" title="Voir ce trajet sur la carte" aria-label="Voir le trajet de ${t.dep} sur la carte"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z"/><path d="M9 4v13.5M15 6.5V20"/></svg></button>`;
+    const { rowsOf } = rowKit(undefined, undefined, mapBtn), n = x.free.length, dir = key[0];
+    const det = document.createElement("li");
+    det.className = "detail" + (still ? " still" : "");
+    det.innerHTML = `<div class="det-head"><span>${frDate(x.d)} · ${whenArrow(dir)} · <b>${n}</b> train${n > 1 ? "s" : ""} MAX JEUNE</span>
+  <button class="det-x" type="button" title="Fermer" aria-label="Fermer le détail"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button></div>
+  ${rowsOf(x.free, x.d)}
+  <div class="hint">Les boutons ouvrent la recherche de ce train (choisissez ensuite le tarif MAX JEUNE sur SNCF Connect).${x.free.some(t => t.legs) ? ` Avec correspondance, chaque train se réserve séparément : en cas de retard, la correspondance n'est pas garantie (correspondance minimale de ${MIN_CORR} min${maxWait < Infinity ? `, attente maximale de ${durTxt(maxWait)}` : ""}).` : ""}</div>`;
+    /* Croix : ferme la fiche du jour, et la carte si un de ses trajets y est affiché */
+    det.querySelector(".det-x").onclick = () => { whenMapExit(); whenClose(); li.focus?.(); };
+    det.querySelectorAll(".wmap-btn").forEach(b => {
+      const on = WHEN.map?.key === key && WHEN.map.tk === b.dataset.wk;
+      b.classList.toggle("on", on); b.setAttribute("aria-pressed", on);
+      b.onclick = () => on ? whenMapExit() : whenMap(key, b.dataset.wk);   // second clic : retour au calendrier
+    });
+    li.after(det);
+    if (!still && (fromCal || !MOBILE.matches)) li.scrollIntoView({ behavior: REDUCE ? "auto" : "smooth", block: "start" });
+  }
+  /* ---------- Quand partir : un trajet sur la carte ----------
+     Bouton carte d'un train : la carte s'ouvre dans une fenêtre (#mapmodal) et le jour est rejoué comme une recherche « Où partir » (mêmes données,
+     mêmes filtres, même affichage : tracé réel, arrêts, petit train, fiche). Le retour est affiché comme une recherche « Toutes les gares
+     de départ → gare de départ », ce qui le trace dans le bon sens. La croix (ou Échap, ou un clic à côté) ferme la fenêtre. */
+  async function whenMap(key, tk) {
+    const R = WHEN.raw, [dir, d] = key.split("|"), x = whenDay(key)?.free.find(t => tkey(t) === tk); if (!x) return;
+    const n = x.legs ? x.legs.length - 1 : 0;
+    $("mm-sub").textContent = `${fmtDay(d)}${dir === "b" ? " · retour" : ""}`;
+    $("mm-title").textContent = `${whenArrow(dir)} · ${x.dep} → ${x.arr}${n ? ` · ${n} correspondance${n > 1 ? "s" : ""}` : ""}`;
+    WHEN.map = { key, tk, origin, focus: document.activeElement };
+    /* La carte est déplacée dans la fenêtre (avant le rendu, pour que le cadrage tienne compte de sa taille) */
+    document.body.classList.add("wmap"); $("mapmodal").hidden = false; $("mm-map").append($("map"), $("speed")); map.resize();   // avec la légende des vitesses
+    $("mm-x").focus();
+    const now = new Date(), day = iso(now), hhmm = now.toTimeString().slice(0, 5), back = dir === "b", w = back ? retWin : depWin;
+    const notGone = r => d !== day || String(r[F.dep] || "").padStart(5, "0") > hhmm;
+    closeDetail();
+    rev = back; dest0 = back ? WHEN.map.origin : null; qDate = d; rDate = null; nCorr = R.corr; dayBack = [];
+    all = ((back ? R.dBack : R.dOut).get(d) || []).filter(notGone).filter(r => inWin(r[F.dep], w) && durOk(toTrain(r))).filter(xferRowOk(back, false));
+    dayOut = R.corr ? ((back ? R.cBack : R.cOut).get(d) || []).filter(notGone).map(toTrain) : [];
+    const keepWin = depWin; depWin = w;   // render lit la plage horaire de l'aller
+    try { await render(); } finally { depWin = keepWin; }
+    if (WHEN.map?.key !== key) return;   // fenêtre fermée entre-temps
+    const name = [...curG].find(([, l]) => l.some(t => tkey(t) === tk))?.[0];
+    if (name) { show(name); pickTrain(name, tk); }
+    /* À gauche, la liste des jours reste affichée (la fiche « Où partir » n'a servi qu'à tracer le train et ses arrêts) */
+    whenRender(); $("status").textContent = `${frDate(d)} · ${whenArrow(dir)} : trajet de ${x.dep} affiché sur la carte.`;
+  }
+  function whenMapExit(rerender = true) {
+    if (!WHEN.map) return;
+    const m = WHEN.map; WHEN.map = null;
+    document.body.classList.remove("wmap"); $("mapmodal").hidden = true; $("wrap").prepend($("map")); $("wrap").append($("speed"));
+    closeDetail(); clearMap(); setOriginMarker(null);
+    rev = false; dest0 = null; origin = m.origin; all = []; back = []; dayOut = []; dayBack = []; qDate = rDate = null; curG = new Map(); curGB = null;
+    if (rerender) whenRender();
+    if (m.focus?.isConnected) m.focus.focus({ preventScroll: true });
+    else $("list").querySelector(`.wmap-btn[data-wk="${CSS.escape(m.tk)}"]`)?.focus({ preventScroll: true });
+  }
+  /* Fenêtre de la carte : croix, clic sur le fond ou Échap pour la fermer */
+  $("mm-x").onclick = () => whenMapExit();
+  $("mapmodal").addEventListener("click", e => { if (e.target === $("mapmodal")) whenMapExit(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && WHEN.map && $("dp").hidden && $("tp").hidden) { e.preventDefault(); whenMapExit(); } });
+  /* Changement d'onglet : les résultats sont effacés ; « Quand partir » exige un départ et une destination précis */
+  function applyMode() {
+    const when = MODE === "when";
+    document.body.classList.toggle("when", when);
+    for (const b of $("mode").querySelectorAll("button[data-mode]")) { const on = b.dataset.mode === MODE; b.setAttribute("aria-selected", on); b.tabIndex = on ? 0 : -1; }
+    $("go").textContent = when ? "Voir les dates disponibles" : "Afficher les trajets";
+    const oSel = $("origin"), allOpt = [...oSel.options].find(o => o.value === ALL_O);
+    if (allOpt) {
+      allOpt.disabled = when;
+      if (when && oSel.value === ALL_O) {
+        const o = [...oSel.options].find(o => o.value !== ALL_O && norm(o.text).startsWith("PARIS")) || [...oSel.options].find(o => o.value !== ALL_O);
+        if (o) oSel.value = o.value;
+      }
+    }
+    if (NAMES.length) oSel.dispatchEvent(new Event("change"));   // liste des destinations : « Toutes les destinations » ou invite à choisir
+    syncRtime(); renderRecent();
+    if (!document.body.classList.contains("res")) $("status").textContent = when ? WHEN_HELLO : WHERE_HELLO;
+    whenCal();
+    if (!when) map.resize();
+    updHint();
+  }
+  function setMode(m) {
+    if (m === MODE) return;
+    if (document.body.classList.contains("res")) { resetAll(); showResults(false); }
+    dpOpen(false); tpOpen(false);
+    MODE = m; try { localStorage.setItem("mode", m); } catch { }
+    applyMode();
+  }
+  $("mode").addEventListener("click", e => { const b = e.target.closest("button[data-mode]"); if (b) setMode(b.dataset.mode); });
+  $("mode").addEventListener("keydown", e => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault(); setMode(MODE === "when" ? "where" : "when"); $(`mode-${MODE}`).focus();
+  });
+  $("wback").addEventListener("change", syncRtime);
+  applyMode();
   /* Charge le GeoJSON du dossier. En http(s) : fetch du .geojson ; en file:// (fetch interdit par le navigateur) :
      sa copie .js (window.TRACES_GEOJSON), régénérée avec make-traces-js.py si le .geojson change. */
   const loadScript = src => new Promise((ok, ko) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = ko; document.head.append(s); });

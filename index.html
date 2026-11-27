@@ -48,6 +48,16 @@
       </button>
       <!-- Formulaire de recherche : masqué pendant l'affichage des résultats (classe « res » sur <body>) -->
       <div id="form">
+      <!-- Onglets : « Où partir » (une date, toutes les destinations sur la carte) / « Quand partir » (un trajet, tous les jours) -->
+      <div id="mode" class="mtabs" role="tablist" aria-label="Type de recherche">
+        <button type="button" role="tab" id="mode-where" data-mode="where" aria-selected="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>
+          Où partir</button>
+        <button type="button" role="tab" id="mode-when" data-mode="when" aria-selected="false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/></svg>
+          Quand partir</button>
+      </div>
+      <div class="where-only">
       <label for="date-btn">Date du voyage</label>
       <!-- Calendrier maison (même style que les infobulles) ; la valeur AAAA-MM-JJ reste dans #date -->
       <input type="hidden" id="date">
@@ -56,6 +66,7 @@
         <span id="date-txt"></span>
         <svg class="dp-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
       </button>
+      </div>
       <!-- Plage horaire de départ de l'aller (heure de départ du premier train) : vide = sans limite.
            Chaque borne s'ouvre sur un cadran d'horloge (#tp) : on choisit l'heure, puis les minutes. -->
       <label for="tmin-btn">Heure de départ <span class="opt">facultatif</span></label>
@@ -66,6 +77,9 @@
         <input type="hidden" id="tmax"><button type="button" id="tmax-btn" class="dp-btn tp-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="tp" aria-label="Départ de l'aller au plus tard"></button>
       </div>
       <!-- Date du retour : facultative (vide = aller simple) ; même calendrier que l'aller -->
+      <!-- « Quand partir » : un second calendrier, dans le sens inverse (destination → départ) -->
+      <div class="chk when-only"><input type="checkbox" id="wback"><label for="wback">Montrer aussi les retours</label></div>
+      <div class="where-only">
       <label for="ret-btn">Date du retour <span class="opt">facultatif</span></label>
       <input type="hidden" id="ret">
       <button type="button" id="ret-btn" class="dp-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="dp">
@@ -73,6 +87,7 @@
         <span id="ret-txt"></span>
         <svg class="dp-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
       </button>
+      </div>
       <!-- Plage horaire de départ du retour : affichée seulement avec une date de retour -->
       <div id="rtime" hidden>
         <label for="rmin-btn">Heure de départ du retour <span class="opt">facultatif</span></label>
@@ -213,6 +228,28 @@
   </aside>
   <div id="wrap">
     <div id="map"></div>
+    <!-- « Quand partir » : calendrier des 30 prochains jours à la place de la carte (rempli par whenCal) -->
+    <section id="cal" aria-label="Calendrier des places MAX JEUNE"></section>
+    <!-- Chargement : un petit train traverse la voie pendant la requête (voir loading) -->
+    <div id="loading" role="status" aria-live="polite" hidden>
+      <div class="ld-card">
+        <div class="ld-track" aria-hidden="true">
+          <svg class="ld-train" width="92" height="30" viewBox="0 0 92 30">
+            <path d="M4 7h58c12 0 22 6 26 14v2H4z" fill="#1f4e8c"/>
+            <path d="M62 7c12 0 22 6 26 14H70c-4 0-7-3-8-7z" fill="#2d6cb5"/>
+            <path d="M4 17h84" stroke="#ffd23f" stroke-width="2.2"/>
+            <rect x="10" y="10" width="9" height="5" rx="1.5" fill="#dbe8f7"/><rect x="23" y="10" width="9" height="5" rx="1.5" fill="#dbe8f7"/>
+            <rect x="36" y="10" width="9" height="5" rx="1.5" fill="#dbe8f7"/><rect x="49" y="10" width="9" height="5" rx="1.5" fill="#dbe8f7"/>
+            <path d="M66 10.5c6 .4 11 2.6 14 5.5h-9.5c-2.4 0-4.2-1.6-4.5-3.6z" fill="#dbe8f7"/>
+            <circle cx="14" cy="25" r="3" fill="#1b2a3a"/><circle cx="24" cy="25" r="3" fill="#1b2a3a"/>
+            <circle cx="62" cy="25" r="3" fill="#1b2a3a"/><circle cx="72" cy="25" r="3" fill="#1b2a3a"/>
+          </svg>
+          <span class="ld-puff p1"></span><span class="ld-puff p2"></span><span class="ld-puff p3"></span>
+          <div class="ld-rail"></div>
+        </div>
+        <span id="loading-txt">Recherche des trains MAX JEUNE</span>
+      </div>
+    </div>
     <!-- Légende de la carte : affichée seulement une fois les trajets tracés (voir showLegend) -->
     <div id="legend" aria-label="Légende">
       <b>Type de train</b>
@@ -258,6 +295,14 @@
       </div>
     </div>
   </div>
+  <!-- Panneau de droite, avec les résultats : les filtres de « Plus de filtres » y sont déplacés (voir showResults) pour affiner la recherche -->
+  <details id="fpanel" open hidden>
+    <summary><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+      <span>Affiner les résultats</span><em id="fp-n" hidden></em>
+      <svg class="dp-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+    <div id="fp-body"></div>
+    <p class="fp-hint">Les résultats se mettent à jour à chaque changement.</p>
+  </details>
   <!-- Pied de page : avertissement, sources des données et mentions légales -->
   <footer id="foot">
     <p class="foot-line">© 2026 Simon De Jaeghere<span class="sep">·</span><a href="https://github.com/simon-dejaeghere/Max-Jeune-Tracker" target="_blank" rel="noopener">Code source sur GitHub</a><span class="sep">·</span>Site indépendant et non officiel, sans lien avec SNCF Voyageurs ni SNCF Connect.</p>
@@ -293,6 +338,17 @@
       </div>
     </details>
   </footer>
+
+  <!-- « Quand partir » : un trajet du calendrier sur la carte, dans une fenêtre (la carte #map y est déplacée, voir whenMap) -->
+  <div id="mapmodal" role="dialog" aria-modal="true" aria-labelledby="mm-title" hidden>
+    <div class="mm-box">
+      <div class="mm-head">
+        <div class="mm-txt"><div class="mm-sub" id="mm-sub"></div><div class="mm-title" id="mm-title"></div></div>
+        <button type="button" id="mm-x" title="Fermer la carte" aria-label="Fermer la carte"><svg width="12" height="12" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button>
+      </div>
+      <div class="mm-map" id="mm-map"></div>
+    </div>
+  </div>
 
   <script src="app.js" defer></script>
 </body>

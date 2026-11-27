@@ -33,10 +33,17 @@ Code écrit à 100 % avec [Claude](https://claude.com/claude-code).
 - **Destination** : toutes les destinations, ou une gare précise.
 - **Mode inversé « Toutes les gares de départ »** : on choisit une destination et le site affiche toutes les gares d'où l'on peut s'y rendre.
 - **Bouton d'inversion** départ ⇄ destination.
-- **Filtre par type de train** : TGV INOUI, Intercités (jour), Intercités de nuit.
+- **Filtre par type de train** : TGV INOUI, Intercités (jour), Intercités de nuit. Les cars SNCF du jeu de données (« AUTOCAR SNCF ») sont écartés.
 - **Option « Afficher aussi les trains complets »**.
 - **Correspondances** : trajets directs uniquement, ou jusqu'à 1 ou 2 correspondances. Chaque train de l'itinéraire doit avoir des places MAX JEUNE, le changement se fait dans la même gare avec au moins 15 minutes (attente maximale réglable de 1 h à 5 h, ou sans limite) ; une correspondance n'est proposée que si elle apporte un horaire que les trajets directs n'offrent pas.
 - Les trains du jour déjà partis sont retirés automatiquement.
+
+### Quand partir
+- Onglet **« Quand partir »**, à côté de **« Où partir »** : pour un trajet précis (une gare de départ **et** une destination, sans « Toutes les gares de départ » ni « Toutes les destinations »), le site parcourt **les 30 prochains jours** et indique ceux où il reste des places MAX JEUNE.
+- Mêmes filtres que « Où partir » (plage horaire, types de train, correspondances, attente max., durée max., changements de gare, trains complets). La date du voyage disparaît. La case **« Montrer aussi les retours »** ajoute le calendrier dans le sens inverse (destination → départ), avec sa propre plage horaire : deux onglets **Aller / Retour** (avec le nombre de jours disponibles) permettent de passer de l'un à l'autre, et la liste des jours suit l'onglet choisi.
+- **Pas de carte** : un **calendrier** la remplace, une case par jour colorée selon le nombre de trains disponibles (avec l'heure du premier départ). Un clic sur un jour ouvre la liste de ses trains avec les liens de réservation.
+- Dans cette liste, l'**icône de carte** d'un train ouvre une **fenêtre** avec la carte de ce seul trajet, tracé comme dans « Où partir » (tracé réel, arrêts, petit train animé) ; la croix en haut à droite, Échap ou un clic à côté la ferment.
+- Données chargées en quelques requêtes pour toute la période (trains directs ; avec des correspondances, trains au départ de la gare, vers la destination, et entre les deux pour 2 correspondances), puis chaque jour est calculé comme une recherche « Où partir ».
 
 ### Résultats
 - Une fois la recherche lancée, le formulaire laisse la place à un **récapitulatif** et à la **liste des destinations**. Le bouton **« Retour à la recherche »** efface les résultats mais garde les choix de la recherche (dates, gares, type de train) pour pouvoir la modifier.
