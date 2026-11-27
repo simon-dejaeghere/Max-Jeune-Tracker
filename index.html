@@ -208,10 +208,19 @@
   </aside>
   <div id="wrap">
     <div id="map"></div>
-    <!-- Légende des couleurs des trains, posée sur la carte -->
-    <div id="legend" aria-label="Légende"><span><i style="background:#14837a"></i>TGV INOUI</span><span><i
-          style="background:#c08a3e"></i>Intercités</span><span><i style="background:#5b62b3"></i>Intercités de
-        nuit</span><span><i style="background:#a9b4bf"></i>Complet</span></div>
+    <!-- Légende de la carte : affichée seulement une fois les trajets tracés (voir showLegend) -->
+    <div id="legend" aria-label="Légende">
+      <b>Type de train</b>
+      <span><i style="background:#14837a"></i>TGV INOUI</span>
+      <span><i style="background:#c08a3e"></i>Intercités</span>
+      <span><i style="background:#5b62b3"></i>Intercités de nuit</span>
+      <span><i style="background:#a9b4bf"></i>Complet (aucune place Max Jeune)</span>
+      <b>Tracé</b>
+      <span><svg class="lg-line" width="26" height="8" aria-hidden="true"><line x1="2" y1="4" x2="24" y2="4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>Trajet direct, sans changement</span>
+      <span><svg class="lg-line" width="26" height="8" aria-hidden="true"><line x1="2" y1="4" x2="24" y2="4" stroke="currentColor" stroke-width="2.4" opacity=".28" stroke-linecap="round"/><line x1="2" y1="4" x2="24" y2="4" stroke="currentColor" stroke-width="2.4" stroke-dasharray="4 3"/></svg>Avec correspondance(s)</span>
+      <span><svg class="lg-line" width="26" height="12" aria-hidden="true"><circle cx="13" cy="6" r="4" style="fill:var(--card, #fff)" stroke="#14837a" stroke-width="2.2"/></svg>Destination (anneau = type de train)</span>
+      <span><svg class="lg-line" width="26" height="12" aria-hidden="true"><circle cx="13" cy="6" r="4" style="fill:var(--card, #fff)" stroke="currentColor" stroke-width="2"/></svg>Gare de correspondance (trajet choisi)</span>
+    </div>
     <div id="search">
       <button id="sbtn" title="Rechercher une gare" aria-label="Rechercher une gare"><svg width="18" height="18"
           viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
@@ -221,11 +230,15 @@
       <input id="sq" type="search" placeholder="Rechercher une gare…" autocomplete="off">
       <ul id="sres"></ul>
     </div>
+    <div id="mtop">
+    <!-- Onglets de jours (résultats affichés) : relance la même recherche un autre jour (voir updDays) -->
+    <div id="days" role="group" aria-label="Changer de jour" hidden></div>
     <!-- Indications en haut de la carte : ce qu'on peut faire à l'étape en cours (texte mis à jour par updHint) -->
     <div id="mhint" role="status" aria-live="polite" hidden>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6M12 7.5v.01"/></svg>
       <span id="mhint-txt"></span>
       <button type="button" id="mhint-x" aria-label="Masquer l'indication" title="Masquer"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button>
+    </div>
     </div>
     <div id="speed"><b>Vitesse max du tronçon</b>
       <div class="bar"></div>
@@ -372,7 +385,9 @@
       return night ? "ICN" : "TGV";   // par défaut : TGV INOUI
     };
     /* Nom de la pastille d'une destination : un segment par type disponible avec son nombre de trains (aller + retour) */
-    const pillId = (ok, free, rfree) => "pill-" + (!ok ? "" : Object.keys(KIND).map(k => [k, [...free, ...(rfree || [])].filter(t => t.kind === k).length]).filter(([, n]) => n).map(([k, n]) => k + n).join("."));
+    /* Un trajet avec correspondance(s) compte pour le type de chacun de ses trains (pas seulement le premier) */
+    const hasKind = (t, k) => (t.legs || [t]).some(l => l.kind === k);
+    const pillId = (ok, free, rfree) => "pill-" + (!ok ? "" : Object.keys(KIND).map(k => [k, [...free, ...(rfree || [])].filter(t => hasKind(t, k)).length]).filter(([, n]) => n).map(([k, n]) => k + n).join("."));
     /* Types de train cochés dans le formulaire : null = tous ; sinon un Set (« TGV », « IC », « ICN »).
        Un itinéraire avec correspondance n'est gardé que si chacun de ses trains est d'un type coché. */
     const kindBoxes = () => [...document.querySelectorAll("#kind input")];
@@ -1016,7 +1031,7 @@
       document.querySelectorAll("#list li").forEach(li => li.classList.toggle("sel", li.dataset.n === sel));
     }
     /* Marges du cadrage de la carte : en haut, on laisse aussi la place au bandeau d'indications */
-    const fitPad = p => ({ top: p + ($("mhint").hidden ? 0 : $("mhint").offsetHeight + 10), bottom: p, left: p, right: p });
+    const fitPad = p => { const h = $("mtop").offsetHeight; return { top: p + (h ? h + 10 : 0), bottom: p, left: p, right: p }; };
     function focusRoute(n) {
       const r = routes.find(r => r.name === n);
       if (!r) return;
@@ -1232,8 +1247,12 @@
     /* Seules les gares sont cliquables (pas les tronçons) */
     /* Le point et la pastille du nom ouvrent tous deux la fiche de la destination */
     const PTS = () => ["pts", "pts-label"].filter(l => map.getLayer(l));
+    /* Clic déjà traité par une destination : le gestionnaire général de la carte doit l'ignorer. Sinon, quand la fiche ouverte
+       passe la carte en mode nuit (train de nuit choisi d'office), le style est rechargé, la couche « pts » n'existe plus
+       au moment du gestionnaire général, qui croit à un clic dans le vide et referme aussitôt la fiche. */
+    let ptsClick = null;
     for (const l of ["pts", "pts-label"]) {
-      map.on("click", l, e => show(e.features[0].properties.name, true));
+      map.on("click", l, e => { ptsClick = e.originalEvent; show(e.features[0].properties.name, true); });
       map.on("mouseenter", l, () => map.getCanvas().style.cursor = "pointer");
       map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
     }
@@ -1265,6 +1284,7 @@
         updHint(s.properties.name);
         return;
       }
+      if (ptsClick === e.originalEvent) return;
       /* Clic sur l'une des variantes du trajet sélectionné (toutes affichées) : on ne garde qu'elle */
       const ln = !(map.getLayer("pts") && map.queryRenderedFeatures(e.point, { layers: PTS() }).length) && selVarHit(e.point);
       if (ln) { pickVar(selected, ln.properties.vk); return; }
@@ -1783,6 +1803,15 @@
         const coords = keep.map(i => c[i]);
         return { f, coords, cum: cumul(coords) };
       });
+      /* Correspondances : les trains d'un même trajet (même nom et variante, un trait par train, dans l'ordre) se dessinent
+         l'un après l'autre. Chaque train occupe une part de la durée proportionnelle à sa longueur, à partir de l'arrivée du précédent. */
+      const groups = new Map();
+      lines.forEach(l => { const k = `${l.f.properties.name}\u0000${l.f.properties.vk}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); });
+      for (const g of groups.values()) {
+        g.sort((a, b) => (a.f.properties.leg || 0) - (b.f.properties.leg || 0));
+        const tot = g.reduce((s, l) => s + l.cum[l.cum.length - 1], 0) || 1; let acc = 0;
+        for (const l of g) { const len = l.cum[l.cum.length - 1]; l.p0 = acc / tot; l.p1 = (acc + len) / tot; acc += len; }
+      }
       const cut = (coords, cum, p) => {
         const d = cum[cum.length - 1] * p; let i = 1;
         while (i < cum.length && cum[i] < d) i++;
@@ -1794,7 +1823,7 @@
       const frame = now => {
         if (id !== growId) return;   // nouveau rendu entre-temps (il a déjà vidé « grow »)
         if (routesData !== fc) { growing = false; gsrc()?.setData(EMPTY_FC); return; }   // réinitialisation entre-temps
-        const g = gsrc(); if (!g) return;   // style rechargé entre-temps : addOverlays a déjà remis les tracés complets
+        const g = gsrc(); if (!g) { growing = false; return; }   // style rechargé entre-temps : addOverlays a déjà remis les tracés complets
         const k = Math.min(1, (now - t0) / DUR), p = (1 - Math.cos(Math.PI * k)) / 2;   // progression régulière, juste adoucie au départ et à l'arrivée
         if (k >= 1) {
           /* Fin : tracés complets dans « routes » ; les lignes animées ne sont retirées qu'une fois ceux-ci affichés (pas de clignotement) */
@@ -1803,8 +1832,8 @@
           return requestAnimationFrame(swap);
         }
         /* Une seule mise à jour en cours à la fois : tant que le worker n'a pas fini la précédente, on saute l'image */
-        if (!g.loaded || g.loaded()) g.setData({ type: "FeatureCollection", features: lines.map(l =>
-          ({ type: "Feature", properties: l.f.properties, geometry: { type: "LineString", coordinates: cut(l.coords, l.cum, Math.max(p, .001)) } })) });
+        if (!g.loaded || g.loaded()) g.setData({ type: "FeatureCollection", features: lines.filter(l => p >= l.p0).map(l =>
+          ({ type: "Feature", properties: l.f.properties, geometry: { type: "LineString", coordinates: cut(l.coords, l.cum, Math.max(Math.min(1, (p - l.p0) / ((l.p1 - l.p0) || 1)), .001)) } })) });
         requestAnimationFrame(frame);
       };
       requestAnimationFrame(frame);
@@ -1889,6 +1918,7 @@
       setOriginMarker(o);
       routesData = { type: "FeatureCollection", features: feats };
       growRoutes(routesData);
+      $("legend").classList.toggle("show", feats.length > 0);
       refineClassic(routesData, routes);
       if (feats.length) map.fitBounds(bounds, { padding: fitPad(60), maxZoom: 8 });
       items.sort((a, b) => b.ok - a.ok || a.name.localeCompare(b.name));
@@ -1897,7 +1927,7 @@
       const xtag = t => t.xs ? ` depuis ${clean(t.xs.b)}` : t.xe ? ` arrivée ${clean(t.xe.a)}` : "";
       const deps = l => l.length ? `${l.length} train(s) : ${l.map(t => t.legs ? `${t.dep}${xtag(t)} (via ${t.via.map(clean).join(", ")})` : `${t.dep}${xtag(t)}`).join(", ")}` : "complet";
       /* Types de trains disponibles (ordre fixe), et pastille aux couleurs de chacun : une part par type */
-      const kindsOf = i => Object.keys(KIND).filter(k => [...i.free, ...(i.rfree || [])].some(t => t.kind === k));
+      const kindsOf = i => Object.keys(KIND).filter(k => [...i.free, ...(i.rfree || [])].some(t => hasKind(t, k)));
       const dotBg = ks => ks.length < 2 ? KIND[ks[0]]?.[1] || "var(--ko)"
         : `conic-gradient(${ks.map((k, j) => `${KIND[k][1]} ${j * 360 / ks.length}deg ${(j + 1) * 360 / ks.length}deg`).join(", ")})`;
       $("list").innerHTML = items.map(i => { const ks = kindsOf(i); return `<li data-n="${i.name}"><b><span class="dot" style="background:${i.ok ? dotBg(ks) : "var(--ko)"}"></span>${i.name}</b>
@@ -2272,17 +2302,17 @@
         }
         $("dest").disabled = false;
         const anyConn = corr && (allO ? inWinMap(connections(dayOut, hubCodes, false, corr, "")).length > 0 : viaOnly.length > 0);
-        if (!all.length && !anyConn) $("status").textContent = allO ? "Aucun train trouvé vers cette destination à cette date." : "Aucun train trouvé pour cette date et cette gare.";
+        if (!all.length && !anyConn) { clearMap(); $("status").textContent = allO ? "Aucun train trouvé vers cette destination à cette date." : "Aucun train trouvé pour cette date et cette gare."; }
         else render();
         showResults(true);
       } catch (e) { $("status").textContent = e.message; }
-      $("go").disabled = false;
+      $("go").disabled = false; $("days").classList.remove("busy"); updDays();
     };
     /* Résultats : le formulaire laisse la place à un récapitulatif et à la liste des trains */
     function showResults(on) {
       document.body.classList.toggle("res", on);
       startsOn = !on; refreshStarts();   // gares de départ : uniquement sur la carte d'accueil
-      updHint();
+      updDays(); updHint();
       $("form").hidden = on; $("recap").hidden = !on;
       if (!on) { $("go").focus(); return; }
       const oText = $("origin").selectedOptions[0]?.text || "", dText = $("dest").selectedOptions[0]?.text || "";
@@ -2301,12 +2331,19 @@
     }
     /* Retour à la recherche : on efface les résultats et la carte, mais le formulaire garde les choix de la recherche
        (dates, gare de départ, destination, type de train, trains complets) pour pouvoir la modifier */
+    /* Carte et liste vidées des résultats (le départ et le formulaire restent) */
+    function clearMap() {
+      selected = null; selVar = selBackVar = selTrain = trainVar = selBack = null; backVar = null; routes = []; pathOf = null; popup?.remove(); popup = null;
+      routesData = { type: "FeatureCollection", features: [] }; pathData = { type: "FeatureCollection", features: [] };
+      map.getSource("routes")?.setData(routesData); map.getSource("path")?.setData(pathData); setStops([]); showXfers([]);
+      $("legend").classList.remove("show"); $("list").innerHTML = "";
+    }
     function resetAll() {
       all = []; back = []; rDate = null; dayOut = []; dayBack = []; nCorr = 0; hubCodes = []; curG = new Map(); curGB = null; rev = false; dest0 = null; origin = null; originIata = null; qDate = null;
       selected = null; selVar = selBackVar = selTrain = trainVar = selBack = null; backVar = null; routes = []; pathOf = null; popup?.remove(); popup = null;
       routesData = { type: "FeatureCollection", features: [] }; pathData = { type: "FeatureCollection", features: [] };
       map.getSource("routes")?.setData(routesData); map.getSource("path")?.setData(pathData); setStops([]); showXfers([]);
-      setOriginMarker(null);
+      setOriginMarker(null); $("legend").classList.remove("show");
       $("list").innerHTML = "";
       $("status").textContent = "Choisissez une date et une gare de départ.";
       $("origin").dispatchEvent(new Event("change"));   // reconstruit les destinations (toutes les gares, choix conservé) et met à jour les boutons
@@ -2315,6 +2352,35 @@
       map.flyTo({ center: [2.5, 46.6], zoom: 5 });
     }
     $("back").onclick = () => { resetAll(); showResults(false); };
+    /* ---------- Changement de jour, en haut de la carte ----------
+       Flèche gauche = jour d'avant, jour affiché au centre, flèche droite = jour d'après (dans les 30 jours ouverts) :
+       un clic relance exactement la même recherche ce jour-là. Avec un retour, il est décalé d'autant (même écart aller / retour) ;
+       une flèche est grisée si le jour sort de la période (ou si le retour en sortirait). */
+    const shortDay = v => cap(fromIso(v).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }));
+    const dayLbl = v => { const o = DAYS.find(o => o.k === v); return o?.rel ? o.label : shortDay(v); };
+    const shiftIso = (v, n) => iso(addDays(fromIso(v), n));
+    const ARR = d => `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d < 0 ? "M7.5 2.5 4 6l3.5 3.5" : "M4.5 2.5 8 6 4.5 9.5"}"/></svg>`;
+    function updDays() {
+      const el = $("days"), i = DAYS.findIndex(o => o.k === qDate);
+      if (!document.body.classList.contains("res") || i < 0) { el.hidden = true; el.innerHTML = ""; return; }
+      const gap = rDate ? Math.round((fromIso(rDate) - fromIso(qDate)) / 864e5) : null, last = iso(max);
+      const btn = d => {
+        const o = DAYS[i + d], k = o?.k, r = k && gap != null ? shiftIso(k, gap) : null, off = !o || (r != null && r > last);
+        const tip = !o ? "Hors des 30 jours ouverts" : off ? "Retour hors des 30 jours ouverts" : r ? `Aller ${frDate(k)} · retour ${frDate(r)}` : `Mêmes critères le ${frDate(k)}`;
+        const lbl = o ? `<span>${dayLbl(k)}</span>` : "";
+        return `<button type="button" class="day arr${d < 0 ? " prev" : " next"}"${k ? ` data-k="${k}"` : ""}${off ? " disabled" : ""} title="${tip}" aria-label="${d < 0 ? "Jour d'avant" : "Jour d'après"}${o ? ` : ${frDate(k)}` : ""}">${d < 0 ? ARR(-1) + lbl : lbl + ARR(1)}</button>`;
+      };
+      el.innerHTML = `${btn(-1)}<span class="day sel" aria-current="date">${dayLbl(qDate)}</span>${btn(1)}`;
+      el.hidden = false;
+    }
+    $("days").onclick = e => {
+      const b = e.target.closest("button.day"); if (!b || b.disabled || !b.dataset.k || $("go").disabled) return;
+      const k = b.dataset.k, gap = rDate ? Math.round((fromIso(rDate) - fromIso(qDate)) / 864e5) : null;
+      $("days").classList.add("busy"); $("days").querySelector(".sel").textContent = dayLbl(k);   // nouveau jour affiché tout de suite, pendant le chargement
+      closeDetail();
+      setDate(k); if (gap != null) setDate(shiftIso(k, gap), "ret");
+      $("go").onclick();
+    };
     /* L'attente maximale n'a de sens qu'avec des correspondances */
     /* ---------- Plages horaires de départ : boutons à petite horloge + cadran (#tp) ----------
        Valeur de chaque champ caché : minutes depuis minuit (« » = sans limite). */
