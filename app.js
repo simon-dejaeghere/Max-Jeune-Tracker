@@ -37,6 +37,15 @@
     return { head, top, others };
   }
 
+  /* Gares favorites (étoile dans la liste) : gardées dans le navigateur, par nom de gare normalisé, communes au départ et à la destination */
+  const FAV_KEY = "favGares";
+  let FAV = []; try { FAV = JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch { }
+  const isFav = o => FAV.includes(norm(o.text));
+  function toggleFav(text) {
+    const k = norm(text); FAV = FAV.includes(k) ? FAV.filter(x => x !== k) : [...FAV, k];
+    try { localStorage.setItem(FAV_KEY, JSON.stringify(FAV)); } catch { }
+  }
+
   const DD = { id: null, items: [], active: 0 };
   function syncPick(id) {
     const sel = $(id), btn = $(id + "-btn"), o = sel.selectedOptions[0];
@@ -47,17 +56,21 @@
   function ddRender() {
     const sel = $(DD.id), q = fold($("dd-q").value.trim()), { head, top, others } = orderedOptions(sel);
     const match = o => !q || fold(disp(o.text)).includes(q) || fold(o.text).includes(q);
-    const item = o => `<li role="option" class="dd-item${o.value === sel.value ? " sel" : ""}" data-v="${html(o.value)}" aria-selected="${o.value === sel.value}">${html(lab(o))}</li>`;
-    const t = top.filter(match), r = others.filter(match), hd = q ? [] : head;
-    DD.items = [...hd, ...t, ...r];
+    const star = o => special(o) ? "" : `<button type="button" class="dd-fav${isFav(o) ? " on" : ""}" tabindex="-1" aria-pressed="${isFav(o)}" title="${isFav(o) ? "Retirer des favoris" : "Ajouter aux favoris"}" aria-label="${isFav(o) ? "Retirer des favoris" : "Ajouter aux favoris"}"><svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8 6.6 19.7l1.1-6.1L3.2 9.4l6.1-.8z"/></svg></button>`;
+    const item = o => `<li role="option" class="dd-item${o.value === sel.value ? " sel" : ""}" data-v="${html(o.value)}" aria-selected="${o.value === sel.value}"><span class="dd-txt">${html(lab(o))}</span>${star(o)}</li>`;
+    /* Favoris : en tête de liste (sans recherche), et retirés des autres sections pour ne pas apparaître deux fois */
+    const f = q ? [] : [...top, ...others].filter(isFav).sort((a, b) => lab(a).localeCompare(lab(b), "fr", { sensitivity: "base" }));
+    const t = top.filter(o => match(o) && !f.includes(o)), r = others.filter(o => match(o) && !f.includes(o)), hd = q ? [] : head;
+    DD.items = [...hd, ...f, ...t, ...r];
     $("dd-list").innerHTML = hd.map(item).join("")
+      + (f.length ? `<li class="dd-h" role="presentation">★ Favoris</li>${f.map(item).join("")}` : "")
       + (t.length ? `<li class="dd-h" role="presentation">Gares principales</li>${t.map(item).join("")}` : "")
       + (r.length ? `<li class="dd-h" role="presentation">${q ? "Autres gares" : "Toutes les gares (A → Z)"}</li>${r.map(item).join("")}` : "")
       || `<li class="dd-empty">${sel.options.length ? "Aucune gare trouvée" : "Chargement des gares…"}</li>`;
     const cur = sel.selectedOptions[0];
     $("dd-title").textContent = cur && !cur.disabled ? lab(cur) : "";
     const nb = [...sel.options].filter(o => !special(o)).length;
-    $("dd-foot").textContent = q ? `${t.length + r.length} gare(s) sur ${nb}` : `${nb} gares`;
+    $("dd-foot").textContent = q ? `${t.length + r.length} gare(s) sur ${nb}` : `${nb} gares${f.length ? "" : " · ☆ pour ajouter une gare aux favoris"}`;
     DD.active = q ? 0 : Math.max(0, DD.items.findIndex(o => o.value === sel.value));
     ddActive(!q ? "top" : "nearest");
   }
@@ -121,7 +134,16 @@
     else if (e.key === "Escape" || e.key === "Tab") { const id = DD.id; ddOpen(null); if (e.key === "Escape") { e.preventDefault(); $(id + "-btn").focus(); } }
   });
   $("dd").addEventListener("click", e => e.stopPropagation());
-  $("dd-list").addEventListener("click", e => { const li = e.target.closest(".dd-item"); if (li) ddPick(li.dataset.v); });
+  $("dd-list").addEventListener("click", e => {
+    const li = e.target.closest(".dd-item"); if (!li) return;
+    /* Étoile : ajoute / retire la gare des favoris, sans la choisir ; la liste garde sa position de défilement */
+    if (e.target.closest(".dd-fav")) {
+      const o = [...$(DD.id).options].find(o => o.value === li.dataset.v); if (!o) return;
+      const list = $("dd-list"), y = list.scrollTop; toggleFav(o.text); ddRender(); list.scrollTop = y; $("dd-q").focus({ preventScroll: true });
+      return;
+    }
+    ddPick(li.dataset.v);
+  });
   $("dd-list").addEventListener("dblclick", e => e.preventDefault());
   $("dd-list").addEventListener("mousemove", e => {
     const li = e.target.closest(".dd-item"); if (!li) return;
@@ -458,15 +480,24 @@
   const ABROAD_OK = new Set(["LULUX", "DEFGB"]);
   const codeOk = c => c == null || String(c).startsWith("FR") || ABROAD_OK.has(c);
   const inScope = r => codeOk(r[F.originIata]) && codeOk(r[F.destIata]);
-  /* Correspondances : tous les trains du jour avec des places MAX JEUNE (≈ 5 000 lignes, ~1 Mo), gardés en mémoire par date */
-  const DAYC = new Map();
-  const fetchDay = date => {
-    if (!DAYC.has(date)) DAYC.set(date, fetchAll({
-      where: `${F.date}=date'${date}' AND ${F.ok}="OUI"`,
-      select: [F.origin, F.originIata, F.dest, F.destIata, F.dep, F.arr, F.train, F.ok, F.entity, F.axe].join(",")
-    }).catch(e => { DAYC.delete(date); throw e; }));
-    return DAYC.get(date);
+  /* Réponses gardées en mémoire pour une durée limitée (les places MAX JEUNE changent vite) : même requête dans ce délai = réponse
+     immédiate, sans nouvel appel ; au-delà, ou en cas d'erreur, la requête est refaite. Les lignes renvoyées ne doivent pas être modifiées. */
+  const memo = (cache, key, ttl, load) => {
+    const hit = cache.get(key);
+    if (hit && Date.now() - hit.at < ttl) return hit.p;
+    const p = load().catch(e => { if (cache.get(key)?.p === p) cache.delete(key); throw e; });
+    cache.set(key, { at: Date.now(), p });
+    return p;
   };
+  /* Trains directs d'une recherche : 3 min (ex. aller-retour entre deux recherches récentes) */
+  const QC = new Map(), QC_TTL = 3 * 60e3;
+  const fetchQuery = params => memo(QC, JSON.stringify(params), QC_TTL, () => fetchAll(params));
+  /* Correspondances : tous les trains du jour avec des places MAX JEUNE (≈ 5 000 lignes, ~1 Mo), gardés 10 min par date */
+  const DAYC = new Map(), DAYC_TTL = 10 * 60e3;
+  const fetchDay = date => memo(DAYC, date, DAYC_TTL, () => fetchAll({
+    where: `${F.date}=date'${date}' AND ${F.ok}="OUI"`,
+    select: [F.origin, F.originIata, F.dest, F.destIata, F.dep, F.arr, F.train, F.ok, F.entity, F.axe].join(",")
+  }));
   /* Villes à plusieurs gares : le jeu de données les nomme toutes « PARIS (intramuros) », « LYON (intramuros) »…
      Seul le code de la gare les distingue : on remplace le nom de ville par celui de la gare. */
   const INTRAMUROS = {
@@ -855,14 +886,14 @@
     const sel = selected, is = (a, b) => ["case", ["==", ["get", "name"], sel], a, b];
     if (!sel && pathOf) { pathOf = null; pathData = { type: "FeatureCollection", features: [] }; map.getSource("path")?.setData(pathData); }
     if (!sel) { setStops([]); if (xferData.features.length || xferReq) showXfers([]); }
-    $("speed").style.display = pathOf ? "block" : "none";
+    $("speed").style.display = pathOf ? "block" : "none"; ttPlace();
     /* Trajet sélectionné : toutes ses variantes, ou seulement celle choisie ; la variante tracée en détail (path) remplace son trait */
     const vOk = effVar() == null ? true : ["==", ["get", "vk"], effVar()];
     /* Épaisseurs selon le zoom (m = facteur : 1 au zoom 4, 1.5 au zoom 8, 2.2 au zoom 12) */
     const Z = f => ["interpolate", ["linear"], ["zoom"], 4, f(1), 8, f(1.5), 12, f(2.2)];
     const mine = (a, b = 0) => is(pathOf === sel ? 0 : ["case", vOk, a, 0], b);   // trajet sélectionné (variante affichée) / les autres
     /* Trajet sélectionné : les autres trajets sont masqués (filtre : ils ne sont ni dessinés ni cliquables) */
-    const only = f => sel ? ["all", f, ["==", ["get", "name"], sel]] : f;
+    const only = f => sel ? ["all", f, ["==", ["get", "name"], sel], ["!=", ["get", "part"], "ov"]] : ["all", f, IS_OV];
     for (const [l, f] of [["lines-glow", IS_LINE], ["lines-casing", IS_LINE], ["lines", ["!", IS_CONN]], ["lines-conn-base", IS_CONN], ["lines-conn", IS_CONN]]) if (map.getLayer(l)) map.setFilter(l, only(f));
     for (const l of ["lines", "lines-conn", "lines-conn-base"]) {
       if (!map.getLayer(l)) continue;
@@ -951,6 +982,8 @@
   function addOverlays() {
     const T = NIGHT ? THEME.night : THEME.day;   // couleurs de nos couches selon le mode jour / nuit
     const vis = RAIL.lgv ? "visible" : "none";
+    /* Fond « temps de parcours » : sous les noms du fond de carte et sous toutes nos couches */
+    ttLayer(ttBefore());
     map.addSource("lgv", { type: "geojson", data: tracesData });
     const fast = [">=", ["get", "vitesse_max_kmh"], 250];   // LGV
     map.addLayer({ id: "lgv-casing", type: "line", source: "lgv", layout: { visibility: vis, "line-join": "round" }, paint: { "line-color": T.casing, "line-width": ["case", fast, 5, 3], "line-opacity": .8 } });
@@ -1019,18 +1052,18 @@
       },
       paint: { "text-color": ["case", sel, T.ok, main, T.blue, T.ink], "text-halo-color": T.halo, "text-halo-width": 1.8 }
     });
-    map.addSource("routes", { type: "geojson", data: routesData });
+    map.addSource("routes", { type: "geojson", data: dedupLines(routesData) });
     /* Trajets : trait plein pour un trajet direct, pointillés pour un itinéraire avec correspondance(s) */
     const isConn = ["==", ["get", "conn"], true];
     /* Halo diffus (trajet sélectionné), liseré blanc sous les traits pleins, puis le trait ; épaisseurs selon le zoom (voir applyHighlight) */
-    map.addLayer({ id: "lines-glow", type: "line", source: "routes", filter: ["==", ["geometry-type"], "LineString"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 12, "line-blur": 8, "line-opacity": 0 } });
-    map.addLayer({ id: "lines-casing", type: "line", source: "routes", filter: ["==", ["geometry-type"], "LineString"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": T.casing, "line-width": 4, "line-opacity": .75 } });
-    map.addLayer({ id: "lines", type: "line", source: "routes", filter: ["!", isConn], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 1.6, "line-opacity": .92 } });
+    map.addLayer({ id: "lines-glow", type: "line", source: "routes", filter: ["all", ["==", ["geometry-type"], "LineString"], IS_OV], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 12, "line-blur": 8, "line-opacity": 0 } });
+    map.addLayer({ id: "lines-casing", type: "line", source: "routes", filter: ["all", ["==", ["geometry-type"], "LineString"], IS_OV], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": T.casing, "line-width": 4, "line-opacity": .75 } });
+    map.addLayer({ id: "lines", type: "line", source: "routes", filter: ["all", ["!", isConn], IS_OV], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 1.6, "line-opacity": .92 } });
     /* Correspondances : même liseré que les traits pleins, trait de fond très léger (continuité du tracé),
        puis tirets fins et nets par-dessus (bouts droits : pas d'aspect « perles ») */
     const CONN_DASH = [2.6, 1.8];
-    map.addLayer({ id: "lines-conn-base", type: "line", source: "routes", filter: isConn, layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 1.6, "line-opacity": .28 } });
-    map.addLayer({ id: "lines-conn", type: "line", source: "routes", filter: isConn, layout: { "line-cap": "butt", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 1.6, "line-opacity": .95, "line-dasharray": CONN_DASH } });
+    map.addLayer({ id: "lines-conn-base", type: "line", source: "routes", filter: ["all", isConn, IS_OV], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 1.6, "line-opacity": .28 } });
+    map.addLayer({ id: "lines-conn", type: "line", source: "routes", filter: ["all", isConn, IS_OV], layout: { "line-cap": "butt", "line-join": "round" }, paint: { "line-color": KCOL, "line-width": 1.6, "line-opacity": .95, "line-dasharray": CONN_DASH } });
     /* Animation d'apparition des trajets (voir growRoutes) : source légère à part, mêmes styles que les traits ci-dessus.
        Seules ces lignes sont recalculées à chaque image ; gares et étiquettes ne bougent pas. */
     map.addSource("grow", { type: "geojson", data: EMPTY_FC, tolerance: 1, buffer: 16 });
@@ -1226,7 +1259,7 @@
       /* Destination choisissable tout de suite : toutes les gares (remplacée après la recherche par les destinations desservies) */
       NAMES = [...new Set(rows.map(r => r[F.origin]))];
       destOptions(NAMES, "");
-      buildStarts();
+      buildStarts(); renderRecent();
     } catch (e) { $("origin").innerHTML = "<option>Erreur de chargement</option>"; $("status").textContent = e.message; }
   }
 
@@ -1323,13 +1356,15 @@
   [/^PARIS MONTPARNASSE VAUGIRARD/, "PMV"], [/^PARIS MONTPARNASSE/, "PM"], [/^PARIS ST LAZARE/, "PSL"], [/\bCDG\b|\bROISSY\b|CHARLES DE GAULLE/, "CDG"],
   [/^MARNE LA VALLEE/, "MLV"], [/^MASSY/, "MAS"], [/^VERSAILLES/, "VER"], [/^LILLE FLANDRES/, "LFL"], [/^LILLE EUROPE/, "LEU"],
   [/^LYON PART DIEU/, "LPD"], [/^LYON PERRACHE/, "LPE"], [/^AVIGNON TGV/, "AVT"], [/^AVIGNON CENTRE/, "AVC"], [/^TOURS$/, "TRS"],
-  [/^ST PIERRE DES CORPS/, "SPC"], [/^MARSEILLE ST CHARLES/, "MSC"], [/^MARSEILLE BLANCARDE/, "MBL"]];
+  [/^ST PIERRE DES CORPS/, "SPC"], [/^MARSEILLE ST CHARLES/, "MSC"], [/^MARSEILLE BLANCARDE/, "MBL"],
+  [/^MONTPELLIER ST ROCH/, "MSR"], [/^MONTPELLIER SUD DE FRANCE/, "MSF"]];
   /* Hors Île-de-France : conseils valables dans les deux sens */
   const XHOW = {
     "LFL|LEU": "À pied, ~10 min (ou métro 2, 1 station).",
     "LPD|LPE": "Tram T1 direct, ~20 min.",
     "AVT|AVC": "TER navette direct (« virgule »), ~5 min.",
-    "TRS|SPC": "Navette TER directe, ~5 min.",
+    "TRS|SPC": "Navette TER directe entre Tours et Saint-Pierre-des-Corps (départs très fréquents), ~5 min.",
+    "MSR|MSF": "Tramway ligne 1 direct entre la gare Saint-Roch et la gare Sud de France (terminus), ~25 min ; ticket TaM à prendre en station.",
     "MBL|MSC": "TER direct (~5 min) ou métro 1."
   };
   /* Île-de-France : le conseil est écrit à partir des étapes de XPATH, dans le sens du trajet (a → b) ; XNOTE complète ou remplace
@@ -1624,6 +1659,33 @@
   }
   /* Trait(s) d'une variante : un seul pour un trajet direct ; avec correspondance(s), un par train, chacun à la couleur
      de son train (kinds[i]) — ex. TGV puis Intercités : vert puis orange */
+  /* Tronçons communs à plusieurs trajets (ex. Paris → Lyon pour Lyon, Marseille, Nice…) : sur la vue d'ensemble, un tronçon
+     de même couleur et même style (plein / pointillés) n'est dessiné qu'une fois, sinon les pointillés superposés et décalés
+     se brouillent. Chaque trait est découpé en morceaux ne gardant que les segments pas encore dessinés (part « ov ») ;
+     le trait complet reste disponible pour la sélection (part « sel »). Un trait sans segment déjà dessiné est gardé tel quel. */
+  const IS_OV = ["!=", ["get", "part"], "sel"];
+  function dedupLines(fc) {
+    const seen = new Set(), out = [], r = ([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`;
+    for (const f of fc.features) {
+      if (f.geometry.type !== "LineString") { out.push(f); continue; }
+      const c = f.geometry.coordinates, p = f.properties, style = `${p.kind}|${p.ok ? 1 : 0}|${p.conn ? 1 : 0}|`;
+      const runs = []; let cur = null, dup = false;
+      for (let i = 1; i < c.length; i++) {
+        const a = r(c[i - 1]), b = r(c[i]), k = style + (a < b ? a + ";" + b : b + ";" + a);
+        if (seen.has(k)) { dup = true; cur = null; continue; }
+        seen.add(k);
+        if (!cur) { cur = { i: i - 1, c: [c[i - 1]] }; runs.push(cur); }
+        cur.c.push(c[i]);
+      }
+      if (!dup) { out.push(f); continue; }
+      out.push({ ...f, properties: { ...p, part: "sel" } });
+      /* off : distance (km) entre le début du trait et celui du morceau (sert à l'animation d'apparition) */
+      const cum = cumul(c);
+      for (const run of runs) out.push({ type: "Feature", properties: { ...p, part: "ov", off: cum[run.i] }, geometry: { type: "LineString", coordinates: run.c } });
+    }
+    return { type: "FeatureCollection", features: out };
+  }
+
   function lineFeats(props, parts, kinds) {
     if (parts.length < 2 || !props.ok) return [{ type: "Feature", properties: props, geometry: { type: "LineString", coordinates: pathGeo(parts.flat()).coords } }];
     return parts.map((p, i) => ({ type: "Feature", properties: { ...props, kind: kinds[i] || props.kind, leg: i }, geometry: { type: "LineString", coordinates: pathGeo(p).coords } }));
@@ -1639,36 +1701,126 @@
     originMarker = new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat(xy).addTo(map);
   }
 
+  /* ---------- Fond « temps de parcours » ----------
+     Après une recherche, la carte est teintée selon la durée du trajet le plus court vers chaque gare (0 à la gare fixe) :
+     les valeurs sont interpolées entre les gares (pondération inverse au carré de la distance), et la teinte s'estompe
+     loin de toute gare connue. L'image est calculée en projection Mercator, ce qui la cale exactement sur la carte. */
+  /* Vert → jaune → orange → rouge, avec une large plage de jaune pour une transition progressive (la barre de la légende en est tirée) */
+  const TT_RAMP = [[0, [26, 152, 80]], [.18, [102, 189, 75]], [.34, [180, 220, 60]], [.46, [240, 230, 50]], [.58, [255, 205, 45]],
+    [.7, [253, 165, 55]], [.84, [242, 105, 45]], [1, [215, 48, 39]]];
+  const TT_NEAR = 70, TT_FAR = 170;   // km : teinte pleine jusqu'à TT_NEAR de la gare la plus proche, nulle au-delà de TT_FAR
+  /* Contour de la France métropolitaine (continent, Corse), simplifié à ~2 km : la teinte ne déborde ni en mer ni chez les voisins.
+     Source : france-geojson (G. David), d'après IGN / Etalab — Licence Ouverte. */
+  const FRANCE = [[[7.13,47.503],[6.986,47.492],[6.999,47.452],[6.941,47.433],[6.879,47.358],[7.012,47.373],[7.062,47.344],[7.046,47.327],[6.943,47.288],[6.955,47.244],[6.74,47.108],[6.692,47.067],[6.7,47.039],[6.433,46.929],[6.465,46.89],[6.435,46.801],[6.459,46.788],[6.111,46.576],[6.156,46.545],[6.064,46.416],[6.17,46.368],[6.103,46.285],[6.124,46.251],[5.978,46.217],[5.964,46.197],[5.992,46.187],[5.956,46.132],[6.127,46.14],[6.277,46.216],[6.307,46.255],[6.238,46.277],[6.304,46.366],[6.39,46.34],[6.513,46.405],[6.723,46.408],[6.806,46.38],[6.771,46.355],[6.865,46.283],[6.804,46.204],[6.797,46.139],[6.898,46.123],[6.873,46.052],[6.952,46.05],[7.044,45.924],[6.94,45.847],[6.819,45.836],[6.808,45.725],[6.935,45.647],[7.001,45.64],[6.978,45.59],[7.0,45.504],[7.184,45.407],[7.114,45.329],[7.138,45.257],[7.067,45.21],[6.966,45.208],[6.895,45.168],[6.894,45.137],[6.768,45.16],[6.627,45.101],[6.672,45.021],[6.743,45.016],[6.751,44.906],[6.863,44.851],[7.007,44.839],[7.0,44.789],[7.066,44.714],[7.077,44.681],[6.957,44.67],[6.932,44.573],[6.854,44.529],[6.937,44.439],[6.893,44.421],[6.887,44.361],[6.993,44.281],[7.008,44.236],[7.16,44.206],[7.28,44.141],[7.34,44.146],[7.358,44.118],[7.685,44.174],[7.667,44.133],[7.714,44.065],[7.665,44.031],[7.653,43.975],[7.495,43.862],[7.53,43.788],[7.413,43.725],[7.244,43.689],[7.206,43.646],[7.158,43.654],[7.122,43.559],[6.952,43.535],[6.947,43.484],[6.892,43.429],[6.734,43.406],[6.71,43.345],[6.584,43.277],[6.697,43.266],[6.62,43.161],[6.556,43.188],[6.496,43.151],[6.405,43.149],[6.369,43.137],[6.366,43.089],[6.208,43.116],[6.16,43.089],[6.157,43.028],[6.117,43.039],[6.126,43.078],[6.031,43.077],[5.921,43.124],[5.917,43.086],[5.829,43.049],[5.814,43.107],[5.695,43.144],[5.653,43.187],[5.601,43.163],[5.531,43.212],[5.341,43.215],[5.373,43.245],[5.324,43.357],[5.038,43.329],[4.968,43.426],[4.931,43.433],[4.864,43.406],[4.855,43.333],[4.662,43.346],[4.563,43.372],[4.588,43.401],[4.562,43.443],[4.166,43.472],[4.101,43.554],[4.011,43.552],[3.662,43.392],[3.51,43.272],[3.387,43.284],[3.263,43.229],[3.093,43.069],[3.043,42.96],[3.037,42.626],[3.057,42.537],[3.138,42.515],[3.174,42.436],[3.085,42.426],[3.041,42.473],[2.947,42.482],[2.841,42.459],[2.799,42.419],[2.674,42.405],[2.672,42.341],[2.578,42.358],[2.54,42.334],[2.257,42.438],[2.023,42.355],[1.986,42.362],[1.935,42.454],[1.731,42.493],[1.736,42.551],[1.786,42.574],[1.726,42.59],[1.738,42.611],[1.549,42.656],[1.48,42.651],[1.477,42.615],[1.44,42.604],[1.358,42.716],[1.162,42.711],[1.107,42.772],[0.924,42.79],[0.708,42.861],[0.659,42.839],[0.645,42.783],[0.671,42.69],[0.436,42.69],[0.36,42.723],[0.293,42.675],[0.26,42.716],[0.176,42.737],[-0.011,42.684],[-0.102,42.722],[-0.16,42.797],[-0.313,42.849],[-0.393,42.8],[-0.51,42.825],[-0.551,42.778],[-0.725,42.891],[-0.752,42.967],[-0.946,42.954],[-1.113,43.022],[-1.264,43.045],[-1.309,43.069],[-1.28,43.118],[-1.346,43.091],[-1.355,43.028],[-1.441,43.046],[-1.471,43.092],[-1.415,43.127],[-1.383,43.253],[-1.505,43.293],[-1.609,43.252],[-1.623,43.301],[-1.73,43.296],[-1.789,43.374],[-1.601,43.433],[-1.442,43.664],[-1.316,44.13],[-1.259,44.547],[-1.192,44.661],[-1.017,44.649],[-1.166,44.775],[-1.262,44.632],[-1.136,45.511],[-1.061,45.56],[-1.039,45.512],[-0.838,45.378],[-0.768,45.29],[-0.683,45.079],[-0.609,45.015],[-0.591,45.042],[-0.668,45.127],[-0.734,45.369],[-0.802,45.46],[-1.01,45.611],[-1.237,45.706],[-1.243,45.782],[-1.132,45.805],[-1.153,45.862],[-1.101,45.872],[-1.064,45.95],[-1.099,45.991],[-1.053,46.011],[-1.129,46.127],[-1.224,46.166],[-1.199,46.213],[-1.111,46.261],[-1.129,46.31],[-1.202,46.316],[-1.207,46.267],[-1.344,46.342],[-1.466,46.342],[-1.502,46.397],[-1.814,46.495],[-1.856,46.609],[-2.141,46.818],[-2.155,46.89],[-1.98,47.029],[-2.053,47.094],[-2.227,47.131],[-2.167,47.166],[-2.17,47.268],[-2.302,47.236],[-2.37,47.277],[-2.442,47.261],[-2.514,47.285],[-2.503,47.329],[-2.559,47.375],[-2.451,47.425],[-2.499,47.457],[-2.502,47.49],[-2.441,47.496],[-2.466,47.512],[-2.652,47.539],[-2.681,47.496],[-2.849,47.499],[-2.909,47.56],[-2.762,47.536],[-2.715,47.577],[-2.755,47.636],[-2.894,47.582],[-3.123,47.57],[-3.133,47.532],[-3.094,47.482],[-3.129,47.474],[-3.14,47.58],[-3.21,47.641],[-3.126,47.723],[-3.176,47.735],[-3.215,47.645],[-3.349,47.729],[-3.453,47.695],[-3.521,47.758],[-3.523,47.849],[-3.539,47.763],[-3.736,47.806],[-3.851,47.796],[-3.979,47.905],[-3.978,47.854],[-4.164,47.849],[-4.175,47.876],[-4.197,47.861],[-4.159,47.832],[-4.183,47.801],[-4.362,47.796],[-4.379,47.822],[-4.35,47.857],[-4.423,47.963],[-4.541,48.013],[-4.699,48.028],[-4.716,48.062],[-4.286,48.105],[-4.273,48.154],[-4.303,48.195],[-4.463,48.238],[-4.554,48.168],[-4.545,48.241],[-4.606,48.261],[-4.553,48.339],[-4.535,48.284],[-4.223,48.296],[-4.367,48.344],[-4.442,48.327],[-4.403,48.39],[-4.425,48.398],[-4.609,48.338],[-4.678,48.355],[-4.772,48.329],[-4.761,48.373],[-4.795,48.413],[-4.762,48.531],[-4.52,48.635],[-4.432,48.635],[-4.35,48.677],[-4.224,48.648],[-4.187,48.686],[-4.058,48.689],[-3.983,48.726],[-3.949,48.653],[-3.904,48.664],[-3.846,48.627],[-3.854,48.686],[-3.821,48.701],[-3.659,48.695],[-3.659,48.659],[-3.581,48.67],[-3.585,48.717],[-3.55,48.748],[-3.584,48.771],[-3.541,48.823],[-3.398,48.801],[-3.22,48.866],[-3.203,48.835],[-3.094,48.868],[-3.083,48.827],[-3.014,48.822],[-3.006,48.8],[-3.045,48.788],[-2.929,48.754],[-2.945,48.721],[-2.827,48.651],[-2.82,48.594],[-2.72,48.555],[-2.698,48.506],[-2.495,48.609],[-2.468,48.65],[-2.315,48.674],[-2.294,48.66],[-2.337,48.62],[-2.264,48.644],[-2.205,48.579],[-2.124,48.604],[-2.141,48.632],[-2.111,48.639],[-2.03,48.623],[-1.972,48.535],[-1.948,48.539],[-2.026,48.652],[-1.938,48.694],[-1.849,48.695],[-1.872,48.647],[-1.774,48.603],[-1.444,48.628],[-1.393,48.651],[-1.56,48.735],[-1.574,48.822],[-1.605,48.838],[-1.543,48.931],[-1.609,49.079],[-1.589,49.233],[-1.632,49.214],[-1.711,49.325],[-1.807,49.372],[-1.886,49.54],[-1.841,49.572],[-1.845,49.619],[-1.86,49.65],[-1.946,49.674],[-1.942,49.726],[-1.625,49.646],[-1.421,49.704],[-1.268,49.695],[-1.229,49.609],[-1.296,49.583],[-1.306,49.539],[-1.168,49.408],[-1.179,49.378],[-1.12,49.356],[-1.078,49.388],[-0.939,49.395],[-0.825,49.358],[-0.415,49.336],[-0.226,49.282],[-0.001,49.326],[0.13,49.403],[0.339,49.441],[0.121,49.463],[0.07,49.506],[0.192,49.706],[0.573,49.85],[1.02,49.916],[1.206,49.973],[1.454,50.11],[1.483,50.172],[1.548,50.215],[1.684,50.183],[1.538,50.283],[1.551,50.35],[1.642,50.352],[1.556,50.398],[1.585,50.537],[1.619,50.535],[1.577,50.572],[1.561,50.7],[1.604,50.763],[1.584,50.872],[1.781,50.955],[2.546,51.088],[2.574,51.004],[2.633,50.946],[2.59,50.919],[2.635,50.813],[2.718,50.813],[2.813,50.717],[2.898,50.694],[3.022,50.772],[3.152,50.782],[3.258,50.701],[3.241,50.658],[3.287,50.528],[3.376,50.491],[3.474,50.534],[3.519,50.523],[3.496,50.499],[3.607,50.497],[3.664,50.453],[3.658,50.371],[3.71,50.303],[3.747,50.351],[3.909,50.328],[4.027,50.357],[4.124,50.274],[4.208,50.273],[4.222,50.257],[4.127,50.135],[4.197,50.135],[4.228,50.08],[4.136,50.02],[4.141,49.979],[4.196,49.956],[4.51,49.947],[4.675,49.997],[4.683,50.069],[4.762,50.136],[4.88,50.152],[4.895,50.135],[4.79,49.97],[4.889,49.91],[4.852,49.861],[4.855,49.792],[4.999,49.799],[5.09,49.765],[5.166,49.693],[5.267,49.697],[5.332,49.655],[5.312,49.614],[5.431,49.593],[5.471,49.497],[5.774,49.563],[5.869,49.499],[5.972,49.491],[5.983,49.451],[6.256,49.51],[6.554,49.418],[6.541,49.401],[6.587,49.385],[6.568,49.345],[6.72,49.221],[6.739,49.164],[6.835,49.151],[6.861,49.179],[6.835,49.211],[6.935,49.222],[7.034,49.19],[7.054,49.113],[7.103,49.14],[7.283,49.117],[7.445,49.184],[7.494,49.17],[7.529,49.097],[7.635,49.054],[7.795,49.066],[7.869,49.034],[7.935,49.058],[8.091,48.989],[8.223,48.976],[8.096,48.81],[7.97,48.755],[7.963,48.721],[7.84,48.641],[7.736,48.404],[7.745,48.336],[7.577,48.12],[7.572,48.03],[7.622,47.972],[7.557,47.88],[7.548,47.74],[7.514,47.703],[7.585,47.577],[7.506,47.544],[7.525,47.52],[7.487,47.482],[7.435,47.498],[7.45,47.475],[7.381,47.432],[7.246,47.422],[7.171,47.444],[7.187,47.491],[7.13,47.503]],[[9.402,41.859],[9.387,41.66],[9.288,41.609],[9.296,41.583],[9.365,41.596],[9.224,41.442],[9.25,41.408],[9.218,41.368],[9.092,41.399],[9.097,41.444],[9.04,41.469],[8.885,41.505],[8.776,41.592],[8.794,41.63],[8.915,41.69],[8.686,41.748],[8.73,41.777],[8.709,41.799],[8.784,41.83],[8.779,41.884],[8.802,41.89],[8.78,41.925],[8.613,41.901],[8.598,41.953],[8.666,41.979],[8.656,42.009],[8.739,42.063],[8.577,42.157],[8.561,42.237],[8.69,42.278],[8.625,42.312],[8.615,42.35],[8.552,42.347],[8.608,42.417],[8.655,42.416],[8.665,42.514],[8.756,42.571],[8.787,42.558],[8.809,42.599],[9.01,42.64],[9.125,42.732],[9.221,42.736],[9.293,42.674],[9.323,42.698],[9.34,42.801],[9.312,42.83],[9.359,43.007],[9.464,42.986],[9.491,42.795],[9.446,42.674],[9.527,42.566],[9.56,42.281],[9.55,42.104],[9.414,41.956],[9.402,41.859]]];
+  let ttData = null;   // { url, coordinates, max } : image courante (recréée à chaque changement de style)
+  const ttColor = t => {
+    let i = 1; while (i < TT_RAMP.length - 1 && t > TT_RAMP[i][0]) i++;
+    const [a, ca] = TT_RAMP[i - 1], [b, cb] = TT_RAMP[i], k = Math.max(0, Math.min(1, (t - a) / (b - a)));
+    return ca.map((v, j) => v + (cb[j] - v) * k);
+  };
+  const ttOpacity = () => NIGHT ? .42 : .5;
+  /* Sous le premier nom du fond de carte (nos couches viennent toutes après), sinon sous nos couches */
+  const ttBefore = () => map.getStyle().layers.find(l => l.type === "symbol")?.id || (map.getLayer("lgv-casing") ? "lgv-casing" : undefined);
+  function ttLayer(before) {
+    if (!ttData || map.getSource("tt")) return;
+    map.addSource("tt", { type: "image", url: ttData.url, coordinates: ttData.coordinates });
+    map.addLayer({ id: "tt", type: "raster", source: "tt", paint: { "raster-opacity": 0, "raster-resampling": "linear", "raster-fade-duration": 0 } }, before);
+    requestAnimationFrame(() => map.getLayer("tt") && map.setPaintProperty("tt", "raster-opacity", ttOpacity()));
+  }
+  /* La légende du temps de parcours se place au-dessus de celle des vitesses quand celle-ci est affichée */
+  /* Sur mobile, la légende des trajets occupe le bas de la carte sur toute la largeur : on se place juste au-dessus */
+  const NARROW = matchMedia("(max-width: 760px)");
+  function ttPlace() {
+    const sp = $("speed"), lg = $("legend");
+    $("ttlegend").style.bottom = NARROW.matches ? `${lg.offsetHeight + 16}px` : sp.style.display === "block" ? `${sp.offsetHeight + 44}px` : "";
+  }
+  addEventListener("resize", () => ttData && ttPlace());
+  function setTravelTime(pts) {
+    if (map.getLayer("tt")) map.removeLayer("tt");
+    if (map.getSource("tt")) map.removeSource("tt");
+    ttData = null; $("ttlegend").classList.remove("show");
+    if (pts.length < 3) return;
+    const M = pts.map(p => ({ ...p, m: maplibregl.MercatorCoordinate.fromLngLat(p.xy) }));
+    const lat0 = M.reduce((s, p) => s + p.xy[1], 0) / M.length, km = 40075 * Math.cos(lat0 * Math.PI / 180);   // km par unité Mercator
+    const pad = TT_FAR / km;
+    let x0 = Math.min(...M.map(p => p.m.x)) - pad, x1 = Math.max(...M.map(p => p.m.x)) + pad;
+    let y0 = Math.min(...M.map(p => p.m.y)) - pad, y1 = Math.max(...M.map(p => p.m.y)) + pad;
+    const S = 260, W = Math.max(2, Math.round(S * Math.min(1, (x1 - x0) / (y1 - y0)))), H = Math.max(2, Math.round(S * Math.min(1, (y1 - y0) / (x1 - x0))));
+    /* Échelle : pas de graduation de 1, 2, 3, 4, 6, 8 ou 12 h, choisi pour avoir au plus 4 intervalles ; la durée max est arrondie au pas */
+    const tmax = Math.max(60, Math.max(...M.map(p => p.t)));
+    const step = [60, 120, 180, 240, 360, 480, 720].find(st => Math.ceil(tmax / st) <= 4) || 720, max = Math.ceil(tmax / step) * step;
+    const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+    const ctx = cv.getContext("2d"), img = ctx.createImageData(W, H), d = img.data;
+    const near2 = (TT_NEAR / km) ** 2;
+    for (let j = 0; j < H; j++) {
+      const y = y0 + (y1 - y0) * (j + .5) / H;
+      for (let i = 0; i < W; i++) {
+        const x = x0 + (x1 - x0) * (i + .5) / W;
+        let num = 0, den = 0, dmin = Infinity;
+        for (const p of M) {
+          const d2 = (p.m.x - x) ** 2 + (p.m.y - y) ** 2;
+          if (d2 < dmin) dmin = d2;
+          const w = 1 / (d2 + near2 * .02) ** 1.5;   // petit lissage : pas de pic exact sur chaque gare
+          num += w * p.t; den += w;
+        }
+        const dk = Math.sqrt(dmin) * km, a = dk <= TT_NEAR ? 1 : dk >= TT_FAR ? 0 : 1 - (dk - TT_NEAR) / (TT_FAR - TT_NEAR);
+        const [r, g, b] = ttColor(num / den / max), o = (j * W + i) * 4;
+        d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = Math.round(255 * a * a * (3 - 2 * a));   // bord adouci
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    /* Découpe sur le contour de la France : on ne garde que ce qui est à l'intérieur */
+    ctx.globalCompositeOperation = "destination-in"; ctx.beginPath();
+    for (const ring of FRANCE) ring.forEach((p, k) => {
+      const m = maplibregl.MercatorCoordinate.fromLngLat(p), px = (m.x - x0) / (x1 - x0) * W, py = (m.y - y0) / (y1 - y0) * H;
+      k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    });
+    ctx.fill(); ctx.globalCompositeOperation = "source-over";
+    const ll = (x, y) => { const c = new maplibregl.MercatorCoordinate(x, y).toLngLat(); return [c.lng, c.lat]; };
+    ttData = { url: cv.toDataURL(), coordinates: [ll(x0, y0), ll(x1, y0), ll(x1, y1), ll(x0, y1)], max };
+    ttLayer(ttBefore());
+    /* Légende : une graduation par pas (au plus 5, la dernière tombe pile sur la durée max) */
+    const ticks = []; for (let m = 0; m <= max; m += step) ticks.push(m);
+    $("ttlegend").querySelector(".bar").style.background = `linear-gradient(90deg, ${TT_RAMP.map(([t, c]) => `rgb(${c}) ${t * 100}%`).join(", ")})`;
+    $("tt-sc").innerHTML = ticks.map(m => `<span style="--x:${m / max}">${m ? `${m / 60} h` : "0"}</span>`).join("");
+    $("ttlegend").classList.add("show"); ttPlace();
+  }
+
   /* Apparition des trajets : chaque ligne se dessine de la gare de départ vers la gare d'arrivée (coordonnées déjà dans ce sens),
-     toutes au même rythme relatif, en ~1,6 s. Les gares (points) sont affichées d'emblée. */
+     à la même vitesse partout (le trajet le plus long en ~1,6 s). Les gares (points) sont affichées d'emblée.
+     Pendant l'animation, la source « routes » ne reçoit que les gares (points, étiquettes) ; les lignes se dessinent dans « grow ». */
   let growId = 0, growing = false;
   function growRoutes(fc) {
     const id = ++growId, src = () => map.getSource("routes"), gsrc = () => map.getSource("grow");
     gsrc()?.setData(EMPTY_FC); growing = false;
     const lf = fc.features.filter(f => f.geometry.type === "LineString");
-    if (REDUCE || !lf.length || !gsrc()) { src()?.setData(fc); return; }
+    if (REDUCE || !lf.length || !gsrc()) { src()?.setData(dedupLines(fc)); return; }
     growing = true;
-    /* Pendant l'animation : la source « routes » ne reçoit qu'une fois les gares (points, étiquettes), sans les lignes ;
-       les lignes se dessinent dans la source « grow », avec des tracés allégés (un point au plus tous les STEP km,
-       ~6000 points en tout) pour que le recalcul de chaque image reste rapide même avec beaucoup de trajets. */
     src()?.setData({ type: "FeatureCollection", features: fc.features.filter(f => f.geometry.type !== "LineString") });
-    const all = lf.map(f => ({ f, c: f.geometry.coordinates, cum: cumul(f.geometry.coordinates) }));
-    const STEP = Math.max(.5, all.reduce((s, l) => s + l.cum[l.cum.length - 1], 0) / 6000);
-    const lines = all.map(({ f, c, cum }) => {
+    /* Correspondances : les trains d'un même trajet (même nom et variante, un trait par train) se suivent ; chaque train part
+       de la distance déjà parcourue par les précédents (legOff, en km, mesurée sur les traits complets). */
+    const legOff = new Map(), gk = p => `${p.name}\u0000${p.vk}`, groups = new Map();
+    for (const f of lf) { const k = gk(f.properties); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(f); }
+    for (const [k, g] of groups) {
+      g.sort((a, b) => (a.properties.leg || 0) - (b.properties.leg || 0)); let acc = 0;
+      for (const f of g) { legOff.set(`${k}\u0000${f.properties.leg || 0}`, acc); const c = cumul(f.geometry.coordinates); acc += c[c.length - 1]; }
+    }
+    /* On anime les tracés dédoublonnés (ceux affichés à la fin) : un tronçon commun à plusieurs trajets n'est dessiné qu'une fois.
+       Animer chaque trajet complet, simplifié à sa façon, empilait des tracés légèrement décalés sur les tronçons communs.
+       Un front unique avance depuis la gare de départ à la même vitesse sur tous les trajets : chaque morceau commence
+       quand le front atteint son début (s0, en km), donc les branches repartent bien du tronc commun déjà tracé. */
+    const parts = dedupLines(fc).features.filter(f => f.geometry.type === "LineString" && f.properties.part !== "sel")
+      .map(f => ({ f, c: f.geometry.coordinates, cum: cumul(f.geometry.coordinates) }));
+    /* Tracés allégés (un point au plus tous les STEP km, ~6000 points en tout) pour que le recalcul de chaque image reste rapide */
+    const STEP = Math.max(.5, parts.reduce((s, l) => s + l.cum[l.cum.length - 1], 0) / 6000);
+    const lines = parts.map(({ f, c, cum }) => {
       const keep = [0]; for (let i = 1; i < c.length - 1; i++) if (cum[i] - cum[keep[keep.length - 1]] >= STEP) keep.push(i);
       if (c.length > 1) keep.push(c.length - 1);
-      const coords = keep.map(i => c[i]);
-      return { f, coords, cum: cumul(coords) };
+      const coords = keep.map(i => c[i]), cc = cumul(coords), len = cc[cc.length - 1];
+      const s0 = (legOff.get(`${gk(f.properties)}\u0000${f.properties.leg || 0}`) || 0) + (f.properties.off || 0);
+      return { f, coords, cum: cc, s0, s1: s0 + len };
     });
-    /* Correspondances : les trains d'un même trajet (même nom et variante, un trait par train, dans l'ordre) se dessinent
-       l'un après l'autre. Chaque train occupe une part de la durée proportionnelle à sa longueur, à partir de l'arrivée du précédent. */
-    const groups = new Map();
-    lines.forEach(l => { const k = `${l.f.properties.name}\u0000${l.f.properties.vk}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); });
-    for (const g of groups.values()) {
-      g.sort((a, b) => (a.f.properties.leg || 0) - (b.f.properties.leg || 0));
-      const tot = g.reduce((s, l) => s + l.cum[l.cum.length - 1], 0) || 1; let acc = 0;
-      for (const l of g) { const len = l.cum[l.cum.length - 1]; l.p0 = acc / tot; l.p1 = (acc + len) / tot; acc += len; }
-    }
+    const D = Math.max(...lines.map(l => l.s1)) || 1;
     const cut = (coords, cum, p) => {
       const d = cum[cum.length - 1] * p; let i = 1;
       while (i < cum.length && cum[i] < d) i++;
@@ -1684,13 +1836,14 @@
       const k = Math.min(1, (now - t0) / DUR), p = (1 - Math.cos(Math.PI * k)) / 2;   // progression régulière, juste adoucie au départ et à l'arrivée
       if (k >= 1) {
         /* Fin : tracés complets dans « routes » ; les lignes animées ne sont retirées qu'une fois ceux-ci affichés (pas de clignotement) */
-        growing = false; const s = src(); s?.setData(fc);
+        growing = false; const s = src(); s?.setData(dedupLines(fc));
         const swap = () => { if (id !== growId) return; if (s?.loaded && !s.loaded()) return requestAnimationFrame(swap); gsrc()?.setData(EMPTY_FC); };
         return requestAnimationFrame(swap);
       }
       /* Une seule mise à jour en cours à la fois : tant que le worker n'a pas fini la précédente, on saute l'image */
-      if (!g.loaded || g.loaded()) g.setData({ type: "FeatureCollection", features: lines.filter(l => p >= l.p0).map(l =>
-        ({ type: "Feature", properties: l.f.properties, geometry: { type: "LineString", coordinates: cut(l.coords, l.cum, Math.max(Math.min(1, (p - l.p0) / ((l.p1 - l.p0) || 1)), .001)) } })) });
+      const d = p * D;   // distance atteinte par le front (km)
+      if (!g.loaded || g.loaded()) g.setData({ type: "FeatureCollection", features: lines.filter(l => d >= l.s0).map(l =>
+        ({ type: "Feature", properties: l.f.properties, geometry: { type: "LineString", coordinates: cut(l.coords, l.cum, Math.max(Math.min(1, (d - l.s0) / ((l.s1 - l.s0) || 1)), .001)) } })) });
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
@@ -1721,7 +1874,7 @@
       changed = true;
     }
     /* Pendant l'animation d'apparition, son image finale reprendra ces tracés corrigés (fc modifié en place) */
-    if (changed && !growing && routesData === fc) map.getSource("routes")?.setData(fc);
+    if (changed && !growing && routesData === fc) map.getSource("routes")?.setData(dedupLines(fc));
   }
 
   async function render() {
@@ -1735,7 +1888,7 @@
     await garesReady;
     await Promise.all([geocodeMissing([hub(), ...g.keys(), ...vias]), tracesReady]);
     selected = null; routes = []; popup?.remove();
-    const feats = [], items = [], lost = [], bounds = new maplibregl.LngLatBounds();
+    const feats = [], items = [], lost = [], tt = [], bounds = new maplibregl.LngLatBounds();
     const o = locate(hub());   // gare fixe : départ (mode normal) ou destination (toutes les gares de départ)
     for (const [name, all0] of g) {
       if (!rev && wanted && !wanted.split("|").includes(name)) continue;
@@ -1769,9 +1922,12 @@
       feats.push({ type: "Feature", properties: { name, ok, kind, label: clean(name), pill: pillId(ok, sFree, sRfree) }, geometry: { type: "Point", coordinates: c } });
       const [a, b] = rev ? [c, o] : [o, c];
       routes.push({ name, a, b, ok, vars });
+      if (ok) tt.push({ xy: c, t: Math.min(...free.map(durMin)) });
       bounds.extend(c);
     }
     if (o) bounds.extend(o);
+    if (o && tt.length) tt.push({ xy: o, t: 0 });
+    setTravelTime(tt);
     setOriginMarker(o);
     routesData = { type: "FeatureCollection", features: feats };
     growRoutes(routesData);
@@ -1945,13 +2101,20 @@
     const ids = new Map([...t, ...(tb || [])].flatMap(x => x.legs || [x]).flatMap(x => [x.from, x.to]).map(n => [n, tlId(n)]));
     const hm = d => `${Math.floor(d / 60)}h${String(d % 60).padStart(2, "0")}`;
     const dur = x => hm(durMin(x));
+    /* Heure d'arrivée ; arrivée le lendemain (train de nuit) : « +1 », avec la date d'arrivée en infobulle */
+    const arrTxt = (x, date) => {
+      if (!night(x)) return `<b>${x.arr}</b>`;
+      const n = new Date(date + "T12:00"); n.setDate(n.getDate() + 1);
+      const d = n.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+      return `<b title="Arrivée le lendemain, ${d}">${x.arr}<sup class="jplus" aria-label="le lendemain">+1</sup></b>`;
+    };
     /* pk : attributs d'un train cliquable (aller, ou retour : data-b), pour afficher son tracé et ses arrêts */
     const isPick = x => x === chosen || x === chosenB;
     const pk = x => ` data-t="${attr(tkey(x))}"${tb?.includes(x) ? " data-b" : ""} tabindex="0" role="button" aria-pressed="${isPick(x)}" title="Afficher ce train et ses arrêts sur la carte"`;
     const trow = (x, date, pick) => {
       const o = ids.get(x.from), d = ids.get(x.to), k = KIND[x.kind];
       return `<div class="trow${pick ? ` pickable${isPick(x) ? " pick" : ""}` : ""}"${pick ? pk(x) : ""}>
-  <div class="ttime"><b>${x.dep}</b><span class="tdur">${dur(x)}</span><b>${x.arr}</b></div>
+  <div class="ttime"><b>${x.dep}</b><span class="tdur">${dur(x)}</span>${arrTxt(x, date)}</div>
   <div class="tst"><span>${clean(x.from)}</span><span>${clean(x.to)}</span></div>
   <div class="tmeta">${k ? `<span class="badge" style="background:${k[1]}">${k[0]}</span>` : ""}<span>Train ${x.no}</span></div>
   <div class="tbtn"><a class="book" href="${sncfLink(x.oIata, x.dIata, date, x.dep)}" target="_blank" rel="noopener">SNCF Connect</a><a class="book alt" href="${trainlineLink(o, d, date, x.dep)}" target="_blank" rel="noopener"${o && d ? "" : ` data-q="${phrase(x.from, x.to, date, x.dep)}"`}>Trainline</a></div></div>`;
@@ -1960,7 +2123,7 @@
     const connRow = (x, date, pick) => {
       const n = x.legs.length - 1;
       return `<div class="tconn${pick ? ` pickable${isPick(x) ? " pick" : ""}` : ""}"${pick ? pk(x) : ""}>
-  <div class="tconn-head"><div class="ttime"><b>${x.dep}</b><span class="tdur">${dur(x)}</span><b>${x.arr}</b></div>
+  <div class="tconn-head"><div class="ttime"><b>${x.dep}</b><span class="tdur">${dur(x)}</span>${arrTxt(x, date)}</div>
   <div class="tconn-sub">${n} correspondance${n > 1 ? "s" : ""} · via ${x.via.map(clean).join(", ")}</div></div>
   ${x.legs.map((l, i) => {
         if (!i) return trow(l, date);
@@ -2110,6 +2273,7 @@
       setTimeout(() => $("dest-btn").click());
       return;
     }
+    saveRecent();
     if (e?.isTrusted) toMap();
     $("go").disabled = true; $("status").textContent = "Recherche en cours…";
     try {
@@ -2134,7 +2298,7 @@
       const win = (a, b) => [$(a).value === "" ? 0 : +$(a).value, $(b).value === "" ? Infinity : +$(b).value];
       depWin = win("tmin", "tmax"); retWin = ret ? win("rmin", "rmax") : [0, Infinity];
       maxDur = durVal();
-      const [out, bk, dOut, dBk] = await Promise.all([fetchAll({ where }), whereBack ? fetchAll({ where: whereBack }) : [],
+      const [out, bk, dOut, dBk] = await Promise.all([fetchQuery({ where }), whereBack ? fetchQuery({ where: whereBack }) : [],
         corr ? fetchDay(date) : [], corr && ret ? fetchDay(ret) : []]);
       all = out.filter(notGone(date)).filter(r => inWin(r[F.dep]) && durOk(toTrain(r))).filter(xferRowOk(allO, false)); back = bk.filter(notGone(ret)).filter(r => inWin(r[F.dep], retWin) && durOk(toTrain(r))).filter(xferRowOk(allO, true)); rDate = ret || null;
       dayOut = dOut.filter(notGone(date)).map(toTrain); dayBack = dBk.filter(notGone(ret)).map(toTrain); nCorr = corr;
@@ -2192,14 +2356,14 @@
   function clearMap() {
     selected = null; selVar = selBackVar = selTrain = trainVar = selBack = null; backVar = null; routes = []; pathOf = null; popup?.remove(); popup = null;
     routesData = { type: "FeatureCollection", features: [] }; pathData = { type: "FeatureCollection", features: [] };
-    map.getSource("routes")?.setData(routesData); map.getSource("path")?.setData(pathData); setStops([]); showXfers([]);
+    map.getSource("routes")?.setData(routesData); map.getSource("path")?.setData(pathData); setStops([]); showXfers([]); setTravelTime([]);
     $("legend").classList.remove("show"); $("list").innerHTML = "";
   }
   function resetAll() {
     all = []; back = []; rDate = null; dayOut = []; dayBack = []; nCorr = 0; hubCodes = []; curG = new Map(); curGB = null; rev = false; dest0 = null; origin = null; originIata = null; qDate = null;
     selected = null; selVar = selBackVar = selTrain = trainVar = selBack = null; backVar = null; routes = []; pathOf = null; popup?.remove(); popup = null;
     routesData = { type: "FeatureCollection", features: [] }; pathData = { type: "FeatureCollection", features: [] };
-    map.getSource("routes")?.setData(routesData); map.getSource("path")?.setData(pathData); setStops([]); showXfers([]);
+    map.getSource("routes")?.setData(routesData); map.getSource("path")?.setData(pathData); setStops([]); showXfers([]); setTravelTime([]);
     setOriginMarker(null); $("legend").classList.remove("show");
     $("list").innerHTML = "";
     $("status").textContent = "Choisissez une date et une gare de départ.";
@@ -2360,6 +2524,35 @@
     if ($("origin").value === ALL_O) { if ($("dest").value && (all.length || rev)) $("go").click(); }
     else if (hasRes() && !rev) render();
   };
+  /* Recherches récentes : les 5 derniers couples départ → destination, gardés dans le navigateur (la date n'est pas gardée :
+     elle serait vite passée). Un clic remet départ et destination et relance la recherche à la date choisie. */
+  const RECENT_KEY = "recentSearches", RECENT_MAX = 5;
+  const loadRecent = () => { try { return JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch { return []; } };
+  const storeRecent = l => { try { localStorage.setItem(RECENT_KEY, JSON.stringify(l)); } catch { } renderRecent(); };
+  function saveRecent() {
+    const o = $("origin").selectedOptions[0], d = $("dest").selectedOptions[0];
+    if (!o) return;
+    const r = { o: o.value, ot: o.text, d: $("dest").value, dt: d && $("dest").value ? d.text : "" };
+    storeRecent([r, ...loadRecent().filter(x => x.o !== r.o || x.d !== r.d)].slice(0, RECENT_MAX));
+  }
+  const recentTxt = r => `${r.o === ALL_O ? "Toutes les gares" : clean(r.ot)} → ${r.d ? clean(r.dt) : "Toutes destinations"}`;
+  function renderRecent() {
+    /* Seules les recherches encore possibles (gares présentes dans le jeu de données) sont proposées */
+    const oOk = new Set([...$("origin").options].map(o => o.value)), l = NAMES.length ? loadRecent().filter(r => oOk.has(r.o)) : [];
+    $("recent").hidden = !l.length;
+    $("recent-list").innerHTML = l.map((r, i) => `<li><button type="button" class="recent-go" data-i="${i}" title="Relancer cette recherche">${attr(recentTxt(r))}</button><button type="button" class="recent-x" data-i="${i}" title="Retirer de l'historique" aria-label="Retirer ${attr(recentTxt(r))} de l'historique">×</button></li>`).join("");
+    $("recent-list").dataset.keys = JSON.stringify(l.map(r => [r.o, r.d]));
+  }
+  $("recent-list").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    const [o, d] = JSON.parse($("recent-list").dataset.keys || "[]")[+b.dataset.i] || [];
+    if (o == null) return;
+    if (b.classList.contains("recent-x")) { storeRecent(loadRecent().filter(x => x.o !== o || x.d !== d)); return; }
+    const oSel = $("origin"); if (![...oSel.options].some(x => x.value === o)) return;
+    oSel.value = o; oSel.dispatchEvent(new Event("change"));   // reconstruit la liste des destinations
+    destOptions(NAMES, d);   // le bouton du champ se met à jour seul (liste des options observée)
+    if (!$("go").disabled) $("go").click();
+  });
   /* Inverser départ et destination. « Toutes les gares de départ » ↔ « Toutes les destinations » ;
      « Ville (toutes les gares) » ↔ « Ville (toutes les gares) » ; une gare ↔ la même gare. */
   $("swap").onclick = () => {

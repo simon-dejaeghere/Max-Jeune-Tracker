@@ -633,6 +633,72 @@ header > select:focus {
     margin-right: 5px
 }
 
+/* Légende du fond « temps de parcours » : carte flottante en bas à droite, affichée seulement quand ce fond est tracé */
+#ttlegend {
+    position: absolute;
+    right: 10px;
+    bottom: 34px;
+    z-index: 3;
+    width: 220px;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 12px 10px;
+    font-size: 12px;
+    color: var(--ink);
+    background: rgba(255, 255, 255, .97);
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .2);
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+    transition: opacity .35s ease, transform .35s ease, visibility 0s linear .35s, bottom .25s ease
+}
+
+#ttlegend.show {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition: opacity .35s ease .15s, transform .35s ease .15s, visibility 0s, bottom .25s ease
+}
+
+#ttlegend b {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em
+}
+
+#ttlegend small {
+    font-size: 11.5px;
+    color: var(--ink);
+    opacity: .8
+}
+
+#ttlegend .bar {
+    height: 10px;
+    border-radius: 5px;
+    margin: 6px 0 4px;
+    background: linear-gradient(90deg, #1a9850, #b4dc3c 34%, #f0e632 46%, #ffcd2d 58%, #fda537 70%, #d72f27)
+}
+
+/* Graduations placées à leur valeur (--x de 0 à 1), la première et la dernière alignées sur les bords */
+#ttlegend .sc {
+    position: relative;
+    height: 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink)
+}
+
+#ttlegend .sc span {
+    position: absolute;
+    left: calc(var(--x) * 100%);
+    transform: translateX(calc(var(--x) * -100%));
+    white-space: nowrap
+}
+
 #speed {
     display: none;
     position: absolute;
@@ -1007,6 +1073,16 @@ header > select:focus {
     color: var(--ink)
 }
 
+/* Arrivée le lendemain (train de nuit) */
+.ttime .jplus {
+    margin-left: 2px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #5b62b3;
+    vertical-align: super;
+    line-height: 0
+}
+
 /* Gares de départ et d'arrivée, en petit sous les horaires (départ à gauche, arrivée à droite).
    Chaque nom reste sur une ligne : si les deux ne tiennent pas côte à côte (téléphone), l'arrivée passe
    à la ligne suivante, toujours alignée à droite ; un nom plus large que la carte est tronqué (…). */
@@ -1329,6 +1405,17 @@ header > select:focus {
 
     #legend b {
         display: none
+    }
+
+    /* Légende du temps de parcours : plus compacte, juste au-dessus de la légende des trajets (position calculée par ttPlace) */
+    #ttlegend {
+        width: 160px;
+        padding: 6px 10px 8px;
+        font-size: 11px
+    }
+
+    #ttlegend small {
+        display: block
     }
 
     /* Bouton de recherche : reste en bas de l'écran tant que le formulaire est visible */
@@ -2380,7 +2467,8 @@ body.night #list .dtab[aria-selected="true"] {
     background: var(--card)
 }
 
-body.night #legend {
+body.night #legend,
+body.night #ttlegend {
     background: rgba(22, 32, 48, .92);
     color: var(--ink)
 }
@@ -2826,4 +2914,130 @@ body.night #mhint-x:hover {
         padding: 7px 8px 7px 10px;
         font-size: 12px
     }
+}
+
+body.night .ttime .jplus {
+    color: #a9aef0
+}
+
+/* ---------- Gares favorites (étoile dans la liste des gares) ---------- */
+.dd-item .dd-txt {
+    flex: 1;
+    min-width: 0
+}
+
+.dd-item .dd-fav {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    margin: -6px -8px -6px 6px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: #b4c0cc;
+    fill: none;
+    cursor: pointer;
+    transition: color .12s, background .12s, transform .12s
+}
+
+.dd-item .dd-fav svg {
+    fill: inherit
+}
+
+.dd-item .dd-fav:hover {
+    color: #e0a422;
+    background: rgba(224, 164, 34, .12);
+    transform: scale(1.1)
+}
+
+.dd-item .dd-fav.on {
+    color: #e0a422;
+    fill: #f2b632
+}
+
+.dd-item.sel .dd-fav {
+    color: rgba(255, 255, 255, .75)
+}
+
+.dd-item.sel .dd-fav.on {
+    color: #ffd26a;
+    fill: #ffd26a
+}
+
+/* ---------- Recherches récentes ---------- */
+#recent-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px
+}
+
+#recent-list li {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+    transition: border-color .12s, box-shadow .12s
+}
+
+#recent-list li:hover {
+    border-color: #b9cbe3;
+    box-shadow: 0 1px 3px rgba(31, 78, 140, .12)
+}
+
+#recent-list button {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--ink);
+    font-weight: 400;
+    font-size: 13.5px
+}
+
+#recent-list .recent-go {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px 8px 32px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* Petite horloge à gauche */
+    background: no-repeat 10px 50% / 14px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7a8a' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E")
+}
+
+#recent-list .recent-go:hover {
+    color: var(--accent);
+    background-color: #eef3fa
+}
+
+#recent-list .recent-x {
+    flex: none;
+    width: 34px;
+    padding: 0;
+    color: var(--mute);
+    font-size: 18px;
+    line-height: 1
+}
+
+#recent-list .recent-x:hover {
+    color: #c0392b;
+    background: rgba(192, 57, 43, .08)
+}
+
+body.night #recent-list li {
+    background: var(--card2);
+    border-color: var(--line)
+}
+
+body.night #recent-list .recent-go:hover {
+    background-color: rgba(77, 138, 222, .14)
 }
