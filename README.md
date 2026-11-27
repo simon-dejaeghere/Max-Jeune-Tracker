@@ -93,11 +93,12 @@ Une connexion Internet est nécessaire : les disponibilités, les fonds de carte
 
 | Fichier | Rôle |
 |---|---|
-| `index.html` | La page et tout le JavaScript (recherche, carte, liste, calendrier, liens de réservation). |
+| `index.html` | La page (structure HTML). |
+| `app.js` | Tout le JavaScript (recherche, carte, liste, calendrier, liens de réservation). |
 | `style.css` | Mise en forme, y compris la version téléphone (`@media (max-width: 760px)`). |
 | `liste-des-gares.geojson` | Gares du réseau SNCF (coordonnées), pour placer les gares sur la carte. |
 | `trainnomade-traces-ferroviaires.geojson` | Tracés des lignes ferroviaires avec leur vitesse maximale, pour dessiner les trajets réels. |
-| `*.js` (mêmes noms) | Copies des deux GeoJSON sous forme de script, utilisées quand le site est ouvert en `file://`. |
+| `liste-des-gares.js`, `trainnomade-traces-ferroviaires.js` | Copies des deux GeoJSON sous forme de script, utilisées quand le site est ouvert en `file://`. |
 | `make-traces-js.py` | Régénère les copies `.js` à partir des `.geojson`. |
 
 ---
@@ -105,7 +106,7 @@ Une connexion Internet est nécessaire : les disponibilités, les fonds de carte
 ## Fonctionnement technique
 
 - **Disponibilités** : interrogées en direct sur l'API du portail open data SNCF, jeu de données [`tgvmax`](https://ressources.data.sncf.com/explore/dataset/tgvmax/) (endpoint `exports/json`). Le champ `od_happy_card` indique s'il reste des places MAX JEUNE.
-  Les noms de champs utilisés sont regroupés dans la constante `F` de `index.html`, à ajuster si la SNCF les modifie.
+  Les noms de champs utilisés sont regroupés dans la constante `F` de `app.js`, à ajuster si la SNCF les modifie.
 - **Placement des gares** : d'abord par la liste des gares SNCF ; pour les noms introuvables, par le [géocodage de la Géoplateforme IGN](https://geoservices.ign.fr/). Les coordonnées trouvées sont gardées en cache dans le `localStorage` du navigateur (clé `geoGares`).
 - **Tracés** : les tronçons de `trainnomade-traces-ferroviaires.geojson` forment un graphe ; le chemin entre deux gares est calculé avec l'algorithme de Dijkstra. Les Intercités (de jour comme de nuit) sont tracés sur les lignes classiques (tronçons à moins de 250 km/h) ; quand une destination est desservie à la fois par des TGV et par des Intercités, chacun a son propre tracé.
 - **Carte** : [MapLibre GL JS](https://maplibre.org/) 6 et [Carte facile](https://www.npmjs.com/package/carte-facile) (fonds IGN et sélecteur de cartes), chargés depuis unpkg via une *import map*. Les étiquettes des gares et leurs bulles sont dessinées en canvas puis ajoutées comme images de la carte.
